@@ -140,15 +140,20 @@ class TestTaskScheduler:
         assert state.learnable_count == 3
 
     @pytest.mark.asyncio
-    async def test_initialise_routes_too_easy_to_archive(self):
+    async def test_initialise_places_all_seed_tasks_in_active_queue(self):
+        """Seed tasks bypass estimation and are placed directly in the learnable queue.
+
+        Pre-estimating with a no-op policy (c=0) would classify every task
+        as too-hard. Seed tasks are hand-authored for the learnable zone, so
+        they skip estimation until real episodes are collected.
+        """
         tasks = [self._make_task("easy-task")]
-        self.estimator.batch_estimate.return_value = [
-            self._make_snapshot("easy-task", DifficultyTier.TOO_EASY, 0.95)
-        ]
         await self.scheduler.initialise(tasks, lambda t: False)
         state = self.scheduler.get_queue_state()
-        assert state.learnable_count == 0
-        assert state.too_easy_count == 1
+        # Task goes straight to active queue; estimator is never called.
+        assert state.learnable_count == 1
+        assert state.too_easy_count == 0
+        self.estimator.batch_estimate.assert_not_called()
 
     def test_request_task_returns_task(self):
         task = self._make_task("t-1")
@@ -161,14 +166,15 @@ class TestTaskScheduler:
         with pytest.raises(QueueEmptyError):
             self.scheduler.request_task()
 
-    def test_difficulty_history_recorded_after_initialise(self):
+    def test_difficulty_history_empty_after_initialise(self):
+        """No snapshot history is recorded at init time.
+
+        History starts accumulating only after real episodes are collected
+        via update(). Seed tasks are placed in the queue without estimation.
+        """
         import asyncio
         tasks = [self._make_task("t-hist")]
-        self.estimator.batch_estimate.return_value = [
-            self._make_snapshot("t-hist", DifficultyTier.LEARNABLE, 0.60)
-        ]
         asyncio.run(self.scheduler.initialise(tasks, lambda t: False))
         curve = self.scheduler.get_difficulty_curve()
-        assert "t-hist" in curve
-        assert len(curve["t-hist"]) == 1
-        assert curve["t-hist"][0].pass_at_k == pytest.approx(0.60)
+        # No estimation ran, so history is empty.
+        assert "t-hist" not in curve

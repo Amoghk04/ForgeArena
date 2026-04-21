@@ -1,0 +1,113 @@
+environment:
+  name: forge-arena
+  version: "2.0"
+  python_version: "3.11"
+  runtime: fastapi
+  hosted_on: huggingface_spaces
+
+# ── Forge configuration ────────────────────────────────────────────────────────
+forge:
+  estimation_k: 8
+  estimation_n_samples: 32         # n >> k so pass@k gives non-binary gradients
+  queue_replenishment_threshold: 10
+  batch_reestimation_interval: 50   # re-rank full task bank every N episodes
+
+  difficulty_thresholds:
+    too_easy: 0.85
+    too_hard: 0.20
+
+  generator:
+    max_variants_per_seed: 20
+    min_acceptance_rate: 0.30       # if Generator falls below this, use fallback bank
+
+# ── Models ────────────────────────────────────────────────────────────────────
+models:
+  worker:
+    repo_id: "Qwen/Qwen2.5-7B-Instruct"
+    inference_api: true             # called via HF Inference API, not loaded locally
+    max_new_tokens: 1024
+    temperature: 0.7
+
+  overseer:
+    repo_id: "Qwen/Qwen2.5-1.5B-Instruct"
+    # Managed externally by TRL GRPOTrainer — not loaded by the environment
+
+# ── Tasks ─────────────────────────────────────────────────────────────────────
+tasks:
+  seed_bank_path: "tasks/seed_tasks.json"
+
+  domains:
+    - id: customer_support
+      name: "Customer Support"
+      corruption_rate: 0.50
+      pass_at_k_target: [0.20, 0.85]
+      max_steps: 3
+      corruption_types:
+        - FACTUAL_OMISSION
+        - TEMPORAL_SHIFT
+        - AUTHORITY_FABRICATION
+        - INSTRUCTION_OVERRIDE
+
+    - id: legal_summarisation
+      name: "Legal Document Summarisation"
+      corruption_rate: 0.50
+      pass_at_k_target: [0.20, 0.85]
+      max_steps: 3
+      corruption_types:
+        - FACTUAL_OMISSION
+        - AUTHORITY_FABRICATION
+        - TEMPORAL_SHIFT
+        - BIAS_INJECTION
+
+    - id: code_review
+      name: "Code Review"
+      corruption_rate: 0.50
+      pass_at_k_target: [0.20, 0.85]
+      max_steps: 3
+      corruption_types:
+        - FACTUAL_OMISSION
+        - AUTHORITY_FABRICATION
+        - INSTRUCTION_OVERRIDE
+
+    - id: product_recommendation
+      name: "Product Recommendation"
+      corruption_rate: 0.50
+      pass_at_k_target: [0.20, 0.85]
+      max_steps: 3
+      corruption_types:
+        - BIAS_INJECTION
+        - FACTUAL_OMISSION
+        - TEMPORAL_SHIFT
+        - INSTRUCTION_OVERRIDE
+
+    - id: mixed
+      name: "Mixed Domain (Hard)"
+      corruption_rate: 0.80
+      pass_at_k_target: [0.20, 0.85]
+      max_steps: 4
+      corruption_types:
+        - FACTUAL_OMISSION
+        - BIAS_INJECTION
+        - TEMPORAL_SHIFT
+        - AUTHORITY_FABRICATION
+        - INSTRUCTION_OVERRIDE
+
+# ── Reward weights ─────────────────────────────────────────────────────────────
+# Do not change without updating docs/reward_design.md
+reward:
+  detection_weight: 0.40
+  explanation_weight: 0.30
+  correction_weight: 0.20
+  calibration_weight: 0.10
+
+# ── Correction grader thresholds ───────────────────────────────────────────────
+correction:
+  full_reward_threshold: 0.80   # ROUGE-L F1 above this → score 1.0
+  zero_reward_threshold: 0.50   # ROUGE-L F1 below this → score 0.0
+  neutral_score_when_clean: 0.50  # score when no corruption was present
+
+# ── ROUGE-L correction thresholds ─────────────────────────────────────────────
+correction:
+  full_reward_threshold: 0.80
+  zero_reward_threshold: 0.50
+  neutral_score_when_clean: 0.50

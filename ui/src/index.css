@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --neon: #00d4ff;
+  --neon-dim: #0099cc;
+  --bg-base: #060610;
+  --bg-card: #0c0c1e;
+  --text-primary: #e0e0ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a1c;
+}
+::-webkit-scrollbar-thumb {
+  background: #1c1c3a;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,212,255,0.3);
+}
+
+/* Neon text glow */
+.glow-text {
+  text-shadow: 0 0 10px rgba(0,212,255,0.7), 0 0 25px rgba(0,212,255,0.3);
+}
+
+/* Neon border glow */
+.glow-border {
+  box-shadow: 0 0 0 1px rgba(0,212,255,0.3), 0 0 20px rgba(0,212,255,0.15);
+}
+
+/* Scanline overlay (decorative) */
+.scanlines::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  z-index: 9999;
+}
+
+/* Chart tooltip override */
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+
+.custom-tooltip {
+  background: #0e0e22;
+  border: 1px solid rgba(0,212,255,0.25);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #e0e0ff;
+  box-shadow: 0 0 20px rgba(0,212,255,0.15);
+}
+
+/* Recharts dot */
+.recharts-dot {
+  filter: drop-shadow(0 0 4px rgba(0,212,255,0.8));
+}
+
+/* Number font */
+.num {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Progress bar neon */
+.progress-neon {
+  background: linear-gradient(90deg, rgba(0,212,255,0.3), #00d4ff);
+  box-shadow: 0 0 8px rgba(0,212,255,0.6);
+}
+
+/* Grid bg */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Input focus ring */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+}

@@ -1,0 +1,174 @@
+"""Tests for the Forge module — pass@k formula, difficulty classification, scheduler."""
+from __future__ import annotations
+
+import pytest
+
+from forge_arena.forge.estimator import pass_at_k
+from forge_arena.models.tasks import DifficultyTier
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pass@k unbiased estimator
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPassAtK:
+    def test_zero_correct(self):
+        """0 correct answers → pass@k should be 0.0."""
+        assert pass_at_k(n=10, c=0, k=8) == pytest.approx(0.0)
+
+    def test_all_correct(self):
+        """All correct → pass@k should be 1.0."""
+        assert pass_at_k(n=10, c=10, k=8) == pytest.approx(1.0)
+
+    def test_half_correct_k1(self):
+        """pass@1 with half correct = 0.5."""
+        result = pass_at_k(n=10, c=5, k=1)
+        assert pytest.approx(0.5, abs=0.01) == result
+
+    def test_k_greater_than_n_raises(self):
+        with pytest.raises(ValueError):
+            pass_at_k(n=4, c=2, k=8)
+
+    def test_c_greater_than_n_raises(self):
+        with pytest.raises(ValueError):
+            pass_at_k(n=5, c=6, k=4)
+
+    def test_monotone_in_c(self):
+        """Increasing correct answers should increase pass@k."""
+        results = [pass_at_k(n=10, c=c, k=8) for c in range(0, 11)]
+        for i in range(len(results) - 1):
+            assert results[i] <= results[i + 1]
+
+    def test_output_in_unit_interval(self):
+        for n in [8, 10, 16]:
+            for c in range(0, n + 1, 2):
+                val = pass_at_k(n=n, c=c, k=min(8, n))
+                assert 0.0 <= val <= 1.0, f"Out of range for n={n}, c={c}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Difficulty classification
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDifficultyClassification:
+    def setup_method(self):
+        from unittest.mock import MagicMock
+        from forge_arena.forge.estimator import DifficultyEstimator
+
+        self.config = MagicMock()
+        self.config.difficulty_thresholds.too_easy = 0.85
+        self.config.difficulty_thresholds.too_hard = 0.20
+        self.config.estimation_k = 8
+        self.config.estimation_n = 10
+        # DifficultyEstimator requires a shared mutable episode_counter list
+        self.estimator = DifficultyEstimator(self.config, [])
+
+    def test_too_easy(self):
+        from forge_arena.forge.estimator import classify_difficulty
+        tier = classify_difficulty(0.90, self.config)
+        assert tier == DifficultyTier.TOO_EASY
+
+    def test_too_hard(self):
+        from forge_arena.forge.estimator import classify_difficulty
+        tier = classify_difficulty(0.10, self.config)
+        assert tier == DifficultyTier.TOO_HARD
+
+    def test_learnable_midpoint(self):
+        from forge_arena.forge.estimator import classify_difficulty
+        tier = classify_difficulty(0.50, self.config)
+        assert tier == DifficultyTier.LEARNABLE
+
+    def test_boundary_too_easy(self):
+        """Exactly at boundary → learnable (inclusive lower bound)."""
+        from forge_arena.forge.estimator import classify_difficulty
+        tier = classify_difficulty(0.85, self.config)
+        assert tier == DifficultyTier.LEARNABLE
+
+    def test_boundary_too_hard(self):
+        from forge_arena.forge.estimator import classify_difficulty
+        tier = classify_difficulty(0.20, self.config)
+        assert tier == DifficultyTier.LEARNABLE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TaskScheduler queue management
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTaskScheduler:
+    def setup_method(self):
+        from unittest.mock import MagicMock, AsyncMock
+        from forge_arena.forge.scheduler import TaskScheduler
+
+        config = MagicMock()
+        config.queue_replenishment_threshold = 5
+        config.batch_reestimation_interval = 50
+        config.difficulty_thresholds.too_easy = 0.85
+        config.difficulty_thresholds.too_hard = 0.20
+
+        self.estimator = MagicMock()
+        self.generator = MagicMock()
+        self.scheduler = TaskScheduler(config, self.estimator, self.generator)
+
+    def _make_task(self, task_id: str) -> object:
+        from unittest.mock import MagicMock
+        from forge_arena.models.tasks import TaskDomain, ObfuscationDepth
+        task = MagicMock()
+        task.id = task_id
+        task.domain = TaskDomain.CUSTOMER_SUPPORT
+        task.is_generated = False
+        task.difficulty_tier = None
+        return task
+
+    def _make_snapshot(self, task_id: str, tier: DifficultyTier, pak: float):
+        from unittest.mock import MagicMock
+        snap = MagicMock()
+        snap.task_id = task_id
+        snap.difficulty_tier = tier
+        snap.pass_at_k = pak
+        return snap
+
+    @pytest.mark.asyncio
+    async def test_initialise_routes_learnable_to_active_queue(self):
+        tasks = [self._make_task(f"t-{i}") for i in range(3)]
+        snaps = [
+            self._make_snapshot(f"t-{i}", DifficultyTier.LEARNABLE, 0.50)
+            for i in range(3)
+        ]
+        self.estimator.batch_estimate.return_value = snaps
+        await self.scheduler.initialise(tasks, lambda t: False)
+        state = self.scheduler.get_queue_state()
+        assert state.learnable_count == 3
+
+    @pytest.mark.asyncio
+    async def test_initialise_routes_too_easy_to_archive(self):
+        tasks = [self._make_task("easy-task")]
+        self.estimator.batch_estimate.return_value = [
+            self._make_snapshot("easy-task", DifficultyTier.TOO_EASY, 0.95)
+        ]
+        await self.scheduler.initialise(tasks, lambda t: False)
+        state = self.scheduler.get_queue_state()
+        assert state.learnable_count == 0
+        assert state.too_easy_count == 1
+
+    def test_request_task_returns_task(self):
+        task = self._make_task("t-1")
+        self.scheduler._active_queue.append(task)
+        result = self.scheduler.request_task()
+        assert result.id == "t-1"
+
+    def test_request_task_empty_raises(self):
+        from forge_arena.forge.scheduler import QueueEmptyError
+        with pytest.raises(QueueEmptyError):
+            self.scheduler.request_task()
+
+    def test_difficulty_history_recorded_after_initialise(self):
+        import asyncio
+        tasks = [self._make_task("t-hist")]
+        self.estimator.batch_estimate.return_value = [
+            self._make_snapshot("t-hist", DifficultyTier.LEARNABLE, 0.60)
+        ]
+        asyncio.run(self.scheduler.initialise(tasks, lambda t: False))
+        curve = self.scheduler.get_difficulty_curve()
+        assert "t-hist" in curve
+        assert len(curve["t-hist"]) == 1
+        assert curve["t-hist"][0].pass_at_k == pytest.approx(0.60)

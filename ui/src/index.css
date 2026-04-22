@@ -40,37 +40,20 @@ body {
   border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0,212,255,0.3);
+  background: #262650;
 }
 
-/* Neon text glow */
+/* Text highlight */
 .glow-text {
-  text-shadow: 0 0 10px rgba(0,212,255,0.7), 0 0 25px rgba(0,212,255,0.3);
+  /* glow removed */
 }
 
-/* Neon border glow */
+/* Border highlight */
 .glow-border {
-  box-shadow: 0 0 0 1px rgba(0,212,255,0.3), 0 0 20px rgba(0,212,255,0.15);
+  box-shadow: 0 0 0 1px rgba(0,212,255,0.15);
 }
 
-/* Scanline overlay (decorative) */
-.scanlines::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0,0,0,0.03) 2px,
-    rgba(0,0,0,0.03) 4px
-  );
-  z-index: 9999;
-}
+/* Scanline overlay removed */
 
 /* Chart tooltip override */
 .recharts-tooltip-wrapper {
@@ -90,7 +73,6 @@ body {
 
 /* Recharts dot */
 .recharts-dot {
-  filter: drop-shadow(0 0 4px rgba(0,212,255,0.8));
 }
 
 /* Number font */
@@ -99,10 +81,9 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Progress bar neon */
+/* Progress bar */
 .progress-neon {
-  background: linear-gradient(90deg, rgba(0,212,255,0.3), #00d4ff);
-  box-shadow: 0 0 8px rgba(0,212,255,0.6);
+  background: #00d4ff;
 }
 
 /* Grid bg */

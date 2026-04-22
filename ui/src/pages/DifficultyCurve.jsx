@@ -23,7 +23,7 @@ function CustomTooltip({ active, payload, label }) {
       <p className="text-muted mb-2 text-[10px]">Snapshot {label}</p>
       {payload.slice(0, 6).map(p => (
         <p key={p.name} style={{ color: p.color }} className="text-[10px] truncate">
-          {p.name.slice(0, 18)}…: <b>{typeof p.value === 'number' ? p.value.toFixed(3) : p.value}</b>
+          {p.name.slice(0, 18)}: <b>{typeof p.value === 'number' ? p.value.toFixed(3) : p.value}</b>
         </p>
       ))}
       {payload.length > 6 && <p className="text-muted text-[9px]">+{payload.length - 6} more</p>}
@@ -71,7 +71,7 @@ export default function DifficultyCurve() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-primary">Difficulty Curve</h2>
-          <p className="text-xs text-muted font-mono mt-0.5">pass@k time series — primary Forge visualisation</p>
+          <p className="text-xs text-muted font-mono mt-0.5">pass@k time series - primary Forge visualisation</p>
         </div>
         <Button onClick={refresh} variant="secondary" size="sm">
           <RefreshCw size={13} /> refresh
@@ -119,7 +119,7 @@ export default function DifficultyCurve() {
           </ResponsiveContainer>
         ) : (
           <div className="flex items-center justify-center h-72 text-muted text-sm">
-            {error ? <span className="text-red-neon">{error}</span> : 'no difficulty data yet — run episodes to populate'}
+            {error ? <span className="text-red-neon">{error}</span> : 'No difficulty data yet. Run episodes to populate.'}
           </div>
         )}
       </Card>
@@ -158,7 +158,7 @@ export default function DifficultyCurve() {
             })}
           </div>
           {taskIds.length > 10 && selectedTasks.size === 0 && (
-            <p className="text-xs text-muted font-mono mt-2">{taskIds.length - 10} more tasks hidden — click to show</p>
+            <p className="text-xs text-muted font-mono mt-2">{taskIds.length - 10} more tasks not shown. Click a task to filter.</p>
           )}
         </Card>
       )}
@@ -188,7 +188,7 @@ export default function DifficultyCurve() {
                   const tier = latest < 0.20 ? 'too-hard' : latest > 0.85 ? 'too-easy' : 'learnable'
                   return (
                     <tr key={tid} className="border-b border-border/40 hover:bg-card-hover transition-colors">
-                      <td className="py-2 pr-4" style={{ color: PALETTE[i % PALETTE.length] }}>{tid.slice(0, 18)}…</td>
+                      <td className="py-2 pr-4" style={{ color: PALETTE[i % PALETTE.length] }}>{tid.slice(0, 18)}</td>
                       <td className="py-2 pr-4 text-right text-muted">{snaps.length}</td>
                       <td className="py-2 pr-4 text-right"><Badge value={tier} type="tier" /></td>
                       <td className="py-2 pr-4 text-right text-muted">{min.toFixed(3)}</td>

@@ -100,7 +100,7 @@ export default function TaskBank() {
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search tasks…"
+                placeholder="Search tasks..."
                 className="w-full bg-card border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-primary font-mono placeholder:text-muted focus:border-neon-dim transition-colors"
               />
             </div>
@@ -146,19 +146,19 @@ export default function TaskBank() {
                   <tbody>
                     {filtered.map(t => (
                       <tr key={t.task_id} className="border-b border-border/40 hover:bg-card-hover transition-colors">
-                        <td className="py-2.5 px-4 text-muted">{t.task_id?.slice(0, 10)}…</td>
+                        <td className="py-2.5 px-4 text-muted">{t.task_id?.slice(0, 10)}</td>
                         <td className="py-2.5 px-4"><Badge value={t.domain} type="domain" /></td>
                         <td className="py-2.5 px-4"><Badge value={t.difficulty_tier ?? 'unestimated'} type="tier" /></td>
                         <td className="py-2.5 px-4 text-right" style={{ color: TIER_COLOR[t.difficulty_tier] || '#7080aa' }}>
-                          {t.pass_at_k != null ? t.pass_at_k.toFixed(3) : '—'}
+                          {t.pass_at_k != null ? t.pass_at_k.toFixed(3) : 'n/a'}
                         </td>
-                        <td className="py-2.5 px-4 text-right text-primary">{t.corruption_sophistication ?? '—'}</td>
+                        <td className="py-2.5 px-4 text-right text-primary">{t.corruption_sophistication ?? 'n/a'}</td>
                         <td className="py-2.5 px-4">
                           <span className={`px-1.5 py-0.5 rounded text-xs ${
                             t.obfuscation_depth === 'high' ? 'text-red-neon bg-red-neon/10' :
                             t.obfuscation_depth === 'medium' ? 'text-orange-neon bg-orange-neon/10' :
                             'text-green-neon bg-green-neon/10'
-                          }`}>{t.obfuscation_depth ?? '—'}</span>
+                          }`}>{t.obfuscation_depth ?? 'n/a'}</span>
                         </td>
                         <td className="py-2.5 px-4">
                           {t.is_generated ? <span className="text-purple-neon">gen</span> : <span className="text-muted">seed</span>}

@@ -4,24 +4,30 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import ConfigDict
+
+from openenv.core import Observation as _OpenEnvObservation
 
 from forge_arena.models.tasks import CorruptionType, EpisodePhase, TaskDomain
 
 
-class ResetObservation(BaseModel):
+class ResetObservation(_OpenEnvObservation):
     """Returned by POST /reset. Contains only what the Overseer should see at task start."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
 
     episode_id: str
     task_description: str
     source_material: str
     domain: TaskDomain
-    episode_done: bool = False
+    done: bool = False
     phase: EpisodePhase = EpisodePhase.WORKER_RESPONDING
 
 
-class WorkerObservation(BaseModel):
+class WorkerObservation(_OpenEnvObservation):
     """Returned mid-episode once the Worker has responded — Phase 3 entry."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
 
     episode_id: str
     task_description: str
@@ -29,12 +35,14 @@ class WorkerObservation(BaseModel):
     domain: TaskDomain
     worker_cot: str
     worker_output: str
-    episode_done: bool = False
+    done: bool = False
     phase: EpisodePhase = EpisodePhase.OVERSEER_INSPECTING
 
 
-class EpisodeResult(BaseModel):
+class EpisodeResult(_OpenEnvObservation):
     """Returned after overseer_inspect. Includes ground truth and reward."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
 
     episode_id: str
     task_description: str
@@ -59,12 +67,14 @@ class EpisodeResult(BaseModel):
     correction_score: float
     calibration_score: float
 
-    episode_done: bool = True
+    done: bool = True
     phase: EpisodePhase = EpisodePhase.DONE
 
 
-class StateObservation(BaseModel):
+class StateObservation(_OpenEnvObservation):
     """Returned by GET /state — safe inspection without advancing the episode."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
 
     episode_id: str
     phase: EpisodePhase
@@ -73,5 +83,5 @@ class StateObservation(BaseModel):
     worker_cot: Optional[str]
     worker_output: Optional[str]
     probe_used: bool
-    episode_done: bool
+    done: bool
     # Intentionally omits: corruption_present, corruption_type, reward

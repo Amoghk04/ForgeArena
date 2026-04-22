@@ -23,7 +23,6 @@ function MetricCard({ icon: Icon, label, value, sub, color = NEON }) {
         <div className="p-2 rounded-lg" style={{ background: `${color}15` }}>
           <Icon size={16} style={{ color }} />
         </div>
-        <span className="text-xs font-mono text-muted">live</span>
       </div>
       <div className="font-mono text-3xl font-bold" style={{ color }}>
         {value ?? <Spinner size="sm" />}
@@ -203,7 +202,7 @@ export default function Dashboard() {
                 <PieChart>
                   <Pie data={queuePie} cx="50%" cy="50%" innerRadius={35} outerRadius={55} dataKey="value" paddingAngle={3}>
                     {queuePie.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} style={{ filter: `drop-shadow(0 0 6px ${entry.color}60)` }} />
+                      <Cell key={i} fill={entry.color} />
                     ))}
                   </Pie>
                   <Tooltip content={<CustomTooltip />} />

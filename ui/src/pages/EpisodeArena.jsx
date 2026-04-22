@@ -24,12 +24,12 @@ function ScoreBar({ label, value, color = '#00d4ff', width = '100%' }) {
     <div className="space-y-1" style={{ width }}>
       <div className="flex justify-between text-xs font-mono">
         <span className="text-secondary">{label}</span>
-        <span style={{ color }}>{value != null ? value.toFixed(3) : '—'}</span>
+        <span style={{ color }}>{value != null ? value.toFixed(3) : 'n/a'}</span>
       </div>
       <div className="h-1.5 bg-base rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${((value ?? 0) * 100).toFixed(1)}%`, background: color, boxShadow: `0 0 6px ${color}80` }}
+          style={{ width: `${((value ?? 0) * 100).toFixed(1)}%`, background: color }}
         />
       </div>
     </div>
@@ -92,7 +92,7 @@ export default function EpisodeArena() {
   async function handleReset() {
     setLoading(true); setError(null)
     try {
-      const obs = await resetEpisode(domain)
+      const obs = await resetEpisode()
       setReset(obs)
       setProbeResult(null)
       setProbeQuestion('')
@@ -174,7 +174,7 @@ export default function EpisodeArena() {
         <div className="col-span-2 space-y-4">
           {/* Reset panel */}
           <Card className="p-5" glow>
-            <h3 className="text-xs font-mono text-muted uppercase tracking-widest mb-4">Phase 1 — Start Episode</h3>
+            <h3 className="text-xs font-mono text-muted uppercase tracking-widest mb-4">Phase 1: Start Episode</h3>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-secondary mb-1.5 block">Domain</label>
@@ -203,7 +203,7 @@ export default function EpisodeArena() {
           {/* Probe panel */}
           {phase === 1 && (
             <Card className="p-5">
-              <h3 className="text-xs font-mono text-muted uppercase tracking-widest mb-1">Phase 2 — Probe Worker <span className="text-muted">(optional, once)</span></h3>
+              <h3 className="text-xs font-mono text-muted uppercase tracking-widest mb-1">Phase 2: Probe Worker <span className="text-muted">(optional, once)</span></h3>
               <p className="text-xs text-muted mb-3">Ask the Worker a clarifying question about its response.</p>
               {probeUsed ? (
                 <div className="flex items-center gap-2 text-xs text-muted bg-base rounded-lg px-3 py-2 border border-border">
@@ -253,9 +253,9 @@ export default function EpisodeArena() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Badge value={reset.domain} type="domain" />
-                  <span className="text-xs font-mono text-muted">{reset.episode_id?.slice(0, 8)}…</span>
+                  <span className="text-xs font-mono text-muted">{reset.episode_id?.slice(0, 8)}</span>
                 </div>
-                <span className="text-xs font-mono text-muted">OVERSEER_INSPECTING</span>
+                <span className="text-xs font-mono text-muted">INSPECTING</span>
               </div>
               <h4 className="text-sm font-semibold text-primary mb-2">Task Description</h4>
               <p className="text-sm text-secondary leading-relaxed mb-4">{reset.task_description}</p>
@@ -296,7 +296,7 @@ export default function EpisodeArena() {
           {/* Inspect form */}
           {phase === 1 && (
             <Card className="p-5">
-              <h3 className="text-xs font-mono text-muted uppercase tracking-widest mb-4">Phase 3 — Submit Inspection</h3>
+              <h3 className="text-xs font-mono text-muted uppercase tracking-widest mb-4">Phase 3: Submit Inspection</h3>
               <div className="space-y-4">
                 {/* Detection toggle */}
                 <div>
@@ -398,7 +398,7 @@ export default function EpisodeArena() {
                 <div className="bg-base rounded-lg p-3 border border-border">
                   <p className="text-xs text-muted font-mono mb-1">Composite Reward</p>
                   <p className="text-3xl font-mono font-bold text-neon">
-                    {reward != null ? reward.toFixed(3) : '—'}
+                    {reward != null ? reward.toFixed(3) : 'n/a'}
                   </p>
                 </div>
               </div>
@@ -441,16 +441,16 @@ export default function EpisodeArena() {
               <tbody>
                 {history.map(({ episode_id, domain: d, result: r }) => (
                   <tr key={episode_id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
-                    <td className="py-2 pr-4 text-muted">{episode_id?.slice(0, 8)}…</td>
+                    <td className="py-2 pr-4 text-muted">{episode_id?.slice(0, 8)}</td>
                     <td className="py-2 pr-4"><Badge value={d} type="domain" /></td>
                     <td className="py-2 pr-4">
                       {r?.corruption_type
                         ? <Badge value={r.corruption_type} type="corruption" />
-                        : <span className="text-muted">—</span>}
+                        : <span className="text-muted">n/a</span>}
                     </td>
-                    <td className="py-2 pr-4 text-right text-neon">{r?.detection_score?.toFixed(2) ?? '—'}</td>
-                    <td className="py-2 pr-4 text-right text-purple-neon">{r?.explanation_score?.toFixed(2) ?? '—'}</td>
-                    <td className="py-2 text-right font-bold text-neon">{r?.reward?.toFixed(3) ?? '—'}</td>
+                    <td className="py-2 pr-4 text-right text-neon">{r?.detection_score?.toFixed(2) ?? 'n/a'}</td>
+                    <td className="py-2 pr-4 text-right text-purple-neon">{r?.explanation_score?.toFixed(2) ?? 'n/a'}</td>
+                    <td className="py-2 text-right font-bold text-neon">{r?.reward?.toFixed(3) ?? 'n/a'}</td>
                   </tr>
                 ))}
               </tbody>

@@ -14,22 +14,30 @@ async function request(method, path, body) {
   return res.json()
 }
 
-// POST /reset — start a new episode
-export async function resetEpisode(domain = null, task_id = null) {
-  const body = {}
-  if (domain) body.domain = domain
-  if (task_id) body.task_id = task_id
-  return request('POST', '/reset', body)
+// Unwrap openenv envelope: {observation: {...}, reward, done} → flat object with reward/done merged in
+function unwrapObservation(envResponse) {
+  if (envResponse && typeof envResponse.observation === 'object') {
+    return { ...envResponse.observation, reward: envResponse.reward, done: envResponse.done }
+  }
+  return envResponse
 }
 
-// POST /step — advance episode with an action
+// POST /reset — start a new episode (openenv wire format)
+export async function resetEpisode() {
+  const raw = await request('POST', '/reset', {})
+  return unwrapObservation(raw)
+}
+
+// POST /step — advance episode with an action (openenv wire format)
+// episode_id is an extra field on the StepRequest body (StepRequest has extra="allow")
 export async function stepEpisode(episode_id, action) {
-  return request('POST', '/step', { episode_id, action })
+  const raw = await request('POST', '/step', { action, episode_id })
+  return unwrapObservation(raw)
 }
 
-// GET /state?episode_id= — inspect without advancing
+// GET /episode_state?episode_id= — inspect specific episode without advancing
 export async function getState(episode_id) {
-  return request('GET', `/state?episode_id=${episode_id}`)
+  return request('GET', `/episode_state?episode_id=${episode_id}`)
 }
 
 // GET /tasks — full task bank

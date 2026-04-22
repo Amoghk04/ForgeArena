@@ -26,8 +26,8 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="px-5 py-5 border-b border-border">
         <div className="flex items-center gap-2">
-          <Zap size={18} className="text-neon" style={{ filter: 'drop-shadow(0 0 6px #00d4ff)' }} />
-          <span className="font-mono font-bold text-base text-neon glow-text tracking-tight">
+          <Zap size={18} className="text-neon" />
+          <span className="font-mono font-bold text-base text-neon tracking-tight">
             FORGE<span className="text-primary opacity-60">+</span>ARENA
           </span>
         </div>
@@ -52,8 +52,7 @@ export default function Sidebar() {
             {({ isActive }) => (
               <>
                 {isActive && (
-                  <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-neon"
-                    style={{ boxShadow: '0 0 8px #00d4ff' }} />
+                  <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-neon" />
                 )}
                 <Icon size={15} className={isActive ? 'text-neon' : 'text-muted group-hover:text-secondary'} />
                 <span className="font-medium tracking-wide">{label}</span>

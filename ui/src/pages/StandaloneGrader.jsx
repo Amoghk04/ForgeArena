@@ -16,12 +16,12 @@ function ScoreRow({ label, value, weight, color }) {
       <div className="flex-1 space-y-1">
         <div className="flex justify-between text-xs font-mono">
           <span className="text-secondary">{label}</span>
-          <span style={{ color }}>{value != null ? value.toFixed(4) : '—'}</span>
+          <span style={{ color }}>{value != null ? value.toFixed(4) : 'n/a'}</span>
         </div>
         <div className="h-1.5 bg-base rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-700"
-            style={{ width: `${((value ?? 0) * 100).toFixed(2)}%`, background: color, boxShadow: `0 0 6px ${color}80` }}
+            style={{ width: `${((value ?? 0) * 100).toFixed(2)}%`, background: color }}
           />
         </div>
       </div>
@@ -256,7 +256,7 @@ export default function StandaloneGrader() {
                     ].map(([k, v]) => (
                       <div key={k} className="flex justify-between">
                         <span className="text-muted">{k}</span>
-                        <span className="text-primary">{v != null ? v.toFixed(3) : '—'}</span>
+                        <span className="text-primary">{v != null ? v.toFixed(3) : 'n/a'}</span>
                       </div>
                     ))}
                   </div>
@@ -269,11 +269,11 @@ export default function StandaloneGrader() {
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs font-mono">
                     <div className="flex justify-between">
                       <span className="text-muted">rouge_l</span>
-                      <span className="text-primary">{result.correction.rouge_l?.toFixed(4) ?? '—'}</span>
+                      <span className="text-primary">{result.correction.rouge_l?.toFixed(4) ?? 'n/a'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted">neutral</span>
-                      <span className="text-primary">{result.correction.neutral?.toFixed(4) ?? '—'}</span>
+                      <span className="text-primary">{result.correction.neutral?.toFixed(4) ?? 'n/a'}</span>
                     </div>
                   </div>
                 </div>

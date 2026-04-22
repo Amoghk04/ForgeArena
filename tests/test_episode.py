@@ -98,7 +98,7 @@ class TestEpisodeStateTransitions:
         )
         # After terminal action, ground truth IS revealed
         assert hasattr(result, "corruption_present")
-        assert result.episode_done is True
+        assert result.done is True
 
     @pytest.mark.asyncio
     async def test_unknown_episode_id_raises(self):

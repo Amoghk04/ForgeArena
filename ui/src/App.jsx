@@ -11,9 +11,8 @@ import StandaloneGrader from './pages/StandaloneGrader'
 
 export default function App() {
   return (
-    <div className="flex h-screen overflow-hidden bg-base scanlines">
-      {/* Grid background */}
-      <div className="fixed inset-0 grid-bg pointer-events-none opacity-60" />
+<div className="flex h-screen overflow-hidden bg-base">
+      {/* Background overlay removed */}
 
       <Sidebar />
 

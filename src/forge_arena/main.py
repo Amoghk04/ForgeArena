@@ -1,4 +1,4 @@
-"""FastAPI application — all 10 OpenEnv v2 endpoints."""
+"""FastAPI application — openenv v2 compliant endpoints."""
 
 from __future__ import annotations
 
@@ -9,17 +9,19 @@ from typing import Any
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException
+from openenv.core import HTTPEnvServer
 from pydantic import BaseModel as _BaseModel
 
 from forge_arena.arena.domains import init_domain_registry
 from forge_arena.arena.episode import EpisodeManager
 from forge_arena.arena.worker import WorkerAgent
 from forge_arena.config import get_settings
+from forge_arena.env import AnyForgeAction, ForgeArenaEnvironment
 from forge_arena.forge.estimator import DifficultyEstimator
 from forge_arena.forge.generator import TaskGenerator
-from forge_arena.forge.scheduler import QueueEmptyError, TaskScheduler
+from forge_arena.forge.scheduler import TaskScheduler
 from forge_arena.graders.composite import CompositeGrader
-from forge_arena.models.actions import OverseerInspectAction, OverseerProbeAction, StepRequest
+from forge_arena.models.actions import AnyAction
 from forge_arena.models.observations import EpisodeResult, ResetObservation, StateObservation
 from forge_arena.models.rewards import (
     BaselineScores,
@@ -84,6 +86,21 @@ async def lifespan(app: FastAPI):
         await _scheduler.initialise(_task_bank, _no_op_policy)
         logger.info("Forge scheduler initialised", queue_state=_scheduler.get_queue_state())
 
+    # Register openenv HTTPEnvServer routes (/reset, /step, /state, /health, /schema, /metadata)
+    # The factory closure captures the shared services — each request gets a fresh env instance.
+    def _env_factory() -> ForgeArenaEnvironment:
+        if _episode_manager is None or _scheduler is None or _composite_grader is None:
+            raise RuntimeError("Services not initialised")
+        return ForgeArenaEnvironment(_episode_manager, _scheduler, _composite_grader)
+
+    _http_server = HTTPEnvServer(
+        env=_env_factory,
+        action_cls=AnyForgeAction,  # delegates to AnyAction discriminated union — supports all action_types
+        observation_cls=ResetObservation,
+    )
+    _http_server.register_routes(app, mode="simulation")
+    logger.info("openenv HTTPEnvServer routes registered")
+
     yield
 
     logger.info("Shutdown complete")
@@ -101,12 +118,6 @@ app = FastAPI(
 # Dependency helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_episode_manager() -> EpisodeManager:
-    if _episode_manager is None:
-        raise HTTPException(status_code=503, detail="Episode manager not initialised")
-    return _episode_manager
-
-
 def _get_scheduler() -> TaskScheduler:
     if _scheduler is None:
         raise HTTPException(status_code=503, detail="Forge scheduler not initialised")
@@ -119,101 +130,24 @@ def _get_grader() -> CompositeGrader:
     return _composite_grader
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. POST /reset
-# ─────────────────────────────────────────────────────────────────────────────
+# NOTE: /reset, /step, /state are registered by HTTPEnvServer.register_routes() in lifespan.
+# They conform to the openenv wire format:
+#   POST /reset  → {observation: {...}, reward: null, done: false}
+#   POST /step   → {observation: {...}, reward: float|null, done: bool}
+#   GET  /state  → openenv State object (episode_id, step_count — not our StateObservation)
+# Client: send episode_id as an extra field in the /step request body (StepRequest.extra="allow").
 
-@app.post("/reset", response_model=ResetObservation)
-async def reset(
-    manager: EpisodeManager = Depends(_get_episode_manager),
-    scheduler: TaskScheduler = Depends(_get_scheduler),
-) -> ResetObservation:
-    """Start a new episode. Returns task description and episode_id.
-    Ground truth is NOT included in the response.
-    """
-    try:
-        task = scheduler.request_task()
-    except QueueEmptyError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-
-    observation = await manager.reset(task, task.domain)
-    return observation
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. POST /step
-# ─────────────────────────────────────────────────────────────────────────────
-
-@app.post("/step")
-async def step(
-    body: StepRequest,
-    manager: EpisodeManager = Depends(_get_episode_manager),
-    grader: CompositeGrader = Depends(_get_grader),
-) -> Any:
-    """Advance the episode with an action.
-
-    - ``OverseerProbeAction`` → returns ``WorkerObservation``
-    - ``OverseerInspectAction`` → returns ``EpisodeResult`` (terminal; includes ground truth)
-    """
-    episode_id = body.episode_id
-    action = body.action
-
-    if isinstance(action, OverseerProbeAction):
-        observation = await manager.step_probe(episode_id, action)
-        return observation
-    elif isinstance(action, OverseerInspectAction):
-        # Get episode state to collect grading inputs
-        state_obs = manager.get_state_observation(episode_id)
-        if state_obs is None:
-            raise HTTPException(status_code=404, detail=f"Episode {episode_id!r} not found")
-
-        # Retrieve the full episode state for grading
-        from forge_arena.arena.episode import EpisodeStore
-        episode_state = EpisodeStore.get(episode_id)
-        if episode_state is None:
-            raise HTTPException(status_code=404, detail=f"Episode {episode_id!r} not found")
-
-        composite_reward_obj = grader.score(
-            episode_id=episode_id,
-            domain=episode_state.task.domain,
-            corruption_present=episode_state.corruption_present,
-            corruption_type=episode_state.corruption_type,
-            ground_truth_output=episode_state.task.clean_worker_output,
-            overseer_detection=action.detection,
-            overseer_explanation=action.explanation,
-            overseer_correction=action.correction,
-            overseer_confidence=action.confidence,
-        )
-
-        result: EpisodeResult = manager.step_inspect(
-            episode_id=episode_id,
-            action=action,
-            composite_reward=composite_reward_obj.composite,
-            detection_score=composite_reward_obj.detection.score,
-            explanation_score=composite_reward_obj.explanation.score,
-            correction_score=composite_reward_obj.correction.score,
-            calibration_score=composite_reward_obj.calibration.score,
-        )
-        # Update scheduler after each terminal step
-        _no_op_policy = lambda t: False  # noqa: E731  # TODO: plug in live policy
-        if _scheduler is not None:
-            await _scheduler.update(_no_op_policy)
-        return result
-    else:
-        raise HTTPException(status_code=422, detail="Unknown action_type")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. GET /state
-# ─────────────────────────────────────────────────────────────────────────────
-
-@app.get("/state", response_model=StateObservation)
-async def state(
+# GET /episode_state?episode_id= is a Forge-specific extension — returns the full
+# StateObservation for a named episode, safe to call without advancing it.
+@app.get("/episode_state", response_model=StateObservation)
+async def episode_state(
     episode_id: str,
-    manager: EpisodeManager = Depends(_get_episode_manager),
 ) -> StateObservation:
-    """Inspect episode state without advancing it. Ground truth is NOT revealed."""
-    obs = manager.get_state_observation(episode_id)
+    """Inspect a specific episode state without advancing it. Ground truth is NOT revealed."""
+    from forge_arena.arena.episode import EpisodeManager as _EM
+    if _episode_manager is None:
+        raise HTTPException(status_code=503, detail="Episode manager not initialised")
+    obs = _episode_manager.get_state_observation(episode_id)
     if obs is None:
         raise HTTPException(status_code=404, detail=f"Episode {episode_id!r} not found")
     return obs
@@ -423,3 +357,6 @@ async def difficulty_curve(
         task_id: [s.model_dump() for s in snapshots]
         for task_id, snapshots in curve.items()
     }
+
+# /health, /schema, /metadata, /state, /ws are all registered by HTTPEnvServer.register_routes()
+# in the lifespan hook above. No manual stubs needed.

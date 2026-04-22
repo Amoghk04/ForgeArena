@@ -85,7 +85,7 @@ class EpisodeManager:
             task_description=task.task_description,
             source_material=task.source_material,
             domain=domain,
-            episode_done=False,
+            done=False,
             phase=EpisodePhase.OVERSEER_INSPECTING,
         )
 
@@ -123,7 +123,7 @@ class EpisodeManager:
             domain=state.task.domain,
             worker_cot=state.worker_cot,
             worker_output=state.worker_output,
-            episode_done=False,
+            done=False,
             phase=EpisodePhase.OVERSEER_INSPECTING,
         )
 
@@ -151,7 +151,7 @@ class EpisodeManager:
         state.overseer_confidence = action.confidence
         state.reward = composite_reward
         state.phase = EpisodePhase.DONE
-        state.episode_done = True
+        state.done = True
 
         assert state.worker_cot is not None
         assert state.worker_output is not None
@@ -186,7 +186,7 @@ class EpisodeManager:
             worker_cot=state.worker_cot,
             worker_output=state.worker_output,
             probe_used=state.probe_used,
-            episode_done=state.episode_done,
+            done=state.done,
         )
 
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from openenv.core import Action as _OpenEnvAction
 
 
 class ActionType(str, Enum):
@@ -14,19 +16,22 @@ class ActionType(str, Enum):
     OVERSEER_INSPECT = "overseer_inspect"
 
 
-class WorkerRespondAction(BaseModel):
+class WorkerRespondAction(_OpenEnvAction):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
     action_type: Literal[ActionType.WORKER_RESPOND] = ActionType.WORKER_RESPOND
     # Worker populates these — in our environment they are produced by the Worker model
     chain_of_thought: str
     output: str
 
 
-class OverseerProbeAction(BaseModel):
+class OverseerProbeAction(_OpenEnvAction):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
     action_type: Literal[ActionType.OVERSEER_PROBE] = ActionType.OVERSEER_PROBE
     question: str = Field(..., min_length=1, max_length=1000)
 
 
-class OverseerInspectAction(BaseModel):
+class OverseerInspectAction(_OpenEnvAction):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
     action_type: Literal[ActionType.OVERSEER_INSPECT] = ActionType.OVERSEER_INSPECT
     detection: bool
     explanation: str = Field(default="", max_length=4000)

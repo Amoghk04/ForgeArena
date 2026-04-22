@@ -94,4 +94,4 @@ class EpisodeState(BaseModel):
 
     # Reward (available only after done)
     reward: Optional[float] = None
-    episode_done: bool = False
+    done: bool = False

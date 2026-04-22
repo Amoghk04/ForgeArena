@@ -58,7 +58,7 @@ export default function ForgeQueue() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-primary">Forge Queue</h2>
-          <p className="text-xs text-muted font-mono mt-0.5">Curriculum scheduler — adaptive task difficulty management</p>
+          <p className="text-xs text-muted font-mono mt-0.5">Curriculum scheduler - adaptive task difficulty management</p>
         </div>
         <Button onClick={qRefresh} variant="secondary" size="sm">
           <RefreshCw size={13} /> refresh

@@ -13,7 +13,7 @@ from forge_arena.models.tasks import (
     Task,
     TaskDomain,
 )
-from forge_arena.models.actions import OverseerInspectAction, OverseerProbeAction
+from forge_arena.models.actions import OverseerInspectAction
 
 
 def _make_task(task_id: str = "task-cs-test") -> Task:
@@ -40,7 +40,6 @@ def _build_manager():
 
     worker = AsyncMock()
     worker.respond.return_value = ("<think>thinking step</think>", "Worker output.")
-    worker.answer_probe.return_value = "Probe answer from worker."
 
     # EpisodeManager only takes a worker — all other dependencies come from domain registry
     manager = EpisodeManager(worker=worker)
@@ -123,29 +122,63 @@ class TestEpisodeStateTransitions:
             )
         assert exc_info.value.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_probe_updates_worker_cot(self):
-        manager, _ = _build_manager()
-        reset_obs = await manager.reset(_make_task(), TaskDomain.CUSTOMER_SUPPORT)
 
-        action = OverseerProbeAction(
-            question="What source did you use for the refund timeline?",
-        )
-        obs = await manager.step_probe(reset_obs.episode_id, action)
-        # Probe Q&A is appended to worker_cot
-        assert "[Probe Q]:" in obs.worker_cot
-        assert "[Probe A]:" in obs.worker_cot
+class TestAdversarialScaling:
+    """Tests for the Worker's adversarial temperature scaling."""
 
-    @pytest.mark.asyncio
-    async def test_double_probe_raises(self):
-        manager, _ = _build_manager()
-        reset_obs = await manager.reset(_make_task(), TaskDomain.CUSTOMER_SUPPORT)
+    def test_initial_obfuscation_level_is_zero(self):
+        from forge_arena.arena.worker import WorkerAgent
+        from unittest.mock import MagicMock
+        settings = MagicMock()
+        settings.worker_model.repo_id = "test"
+        settings.worker_model.max_new_tokens = 100
+        settings.worker_model.temperature = 0.7
+        settings.hf_api_key = None
+        worker = WorkerAgent(settings)
+        assert worker.obfuscation_level == 0
+        assert worker.current_top_p == 0.90
 
-        action = OverseerProbeAction(question="First question.")
-        await manager.step_probe(reset_obs.episode_id, action)
+    def test_escalates_after_accuracy_crosses_threshold(self):
+        from forge_arena.arena.worker import WorkerAgent
+        from unittest.mock import MagicMock
+        settings = MagicMock()
+        settings.worker_model.repo_id = "test"
+        settings.worker_model.max_new_tokens = 100
+        settings.worker_model.temperature = 0.7
+        settings.hf_api_key = None
+        worker = WorkerAgent(settings)
+        # Feed 10 correct detections (accuracy = 1.0 > 0.65 threshold)
+        for _ in range(10):
+            worker.record_detection_outcome(True)
+        assert worker.obfuscation_level >= 1
+        assert worker.current_top_p > 0.90
 
-        with pytest.raises(ValueError, match="Probe already used"):
-            await manager.step_probe(
-                reset_obs.episode_id, OverseerProbeAction(question="Second question.")
-            )
+    def test_top_p_capped_at_097(self):
+        from forge_arena.arena.worker import WorkerAgent
+        from unittest.mock import MagicMock
+        settings = MagicMock()
+        settings.worker_model.repo_id = "test"
+        settings.worker_model.max_new_tokens = 100
+        settings.worker_model.temperature = 0.7
+        settings.hf_api_key = None
+        worker = WorkerAgent(settings)
+        # Feed many correct detections to max out top_p
+        for _ in range(200):
+            worker.record_detection_outcome(True)
+        assert worker.current_top_p <= 0.97
+
+    def test_no_escalation_below_threshold(self):
+        from forge_arena.arena.worker import WorkerAgent
+        from unittest.mock import MagicMock
+        settings = MagicMock()
+        settings.worker_model.repo_id = "test"
+        settings.worker_model.max_new_tokens = 100
+        settings.worker_model.temperature = 0.7
+        settings.hf_api_key = None
+        worker = WorkerAgent(settings)
+        # Feed all incorrect detections (accuracy = 0.0)
+        for _ in range(20):
+            worker.record_detection_outcome(False)
+        assert worker.obfuscation_level == 0
+        assert worker.current_top_p == 0.90
 

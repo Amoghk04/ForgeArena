@@ -10,14 +10,11 @@ from forge_arena.arena.domains import get_domain
 from forge_arena.arena.worker import WorkerAgent
 from forge_arena.models.actions import (
     OverseerInspectAction,
-    OverseerProbeAction,
-    WorkerRespondAction,
 )
 from forge_arena.models.observations import (
     EpisodeResult,
     ResetObservation,
     StateObservation,
-    WorkerObservation,
 )
 from forge_arena.models.tasks import (
     CorruptionType,
@@ -38,6 +35,10 @@ class EpisodeManager:
 
     def __init__(self, worker: WorkerAgent) -> None:
         self._worker = worker
+
+    @property
+    def worker(self) -> WorkerAgent:
+        return self._worker
 
     async def reset(
         self,
@@ -85,44 +86,6 @@ class EpisodeManager:
             task_description=task.task_description,
             source_material=task.source_material,
             domain=domain,
-            done=False,
-            phase=EpisodePhase.OVERSEER_INSPECTING,
-        )
-
-    async def step_probe(
-        self, episode_id: str, action: OverseerProbeAction
-    ) -> WorkerObservation:
-        """Handle an Overseer probe action.
-
-        The Worker answers the probe based on its original response context.
-        The probe does not change the episode phase.
-        """
-        state = _get_state(episode_id)
-        _assert_phase(state, EpisodePhase.OVERSEER_INSPECTING)
-
-        if state.probe_used:
-            raise ValueError("Probe already used in this episode. Maximum one probe per episode.")
-
-        assert state.worker_output is not None
-        probe_answer = await self._worker.answer_probe(
-            state.task, action.question, state.worker_output
-        )
-
-        state.probe_used = True
-        # Append probe Q&A to the Worker CoT so the Overseer sees the full exchange
-        assert state.worker_cot is not None
-        state.worker_cot = (
-            state.worker_cot
-            + f"\n\n[Probe Q]: {action.question}\n[Probe A]: {probe_answer}"
-        )
-
-        return WorkerObservation(
-            episode_id=episode_id,
-            task_description=state.task.task_description,
-            source_material=state.task.source_material,
-            domain=state.task.domain,
-            worker_cot=state.worker_cot,
-            worker_output=state.worker_output,
             done=False,
             phase=EpisodePhase.OVERSEER_INSPECTING,
         )
@@ -185,7 +148,6 @@ class EpisodeManager:
             task_description=state.task.task_description,
             worker_cot=state.worker_cot,
             worker_output=state.worker_output,
-            probe_used=state.probe_used,
             done=state.done,
         )
 

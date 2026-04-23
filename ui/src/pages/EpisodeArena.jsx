@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Play, MessageSquare, Eye, CheckCircle, XCircle, RefreshCw,
+  Play, Eye, CheckCircle, XCircle, RefreshCw,
   ChevronRight, AlertTriangle, Info, Loader2,
 } from 'lucide-react'
 import Card from '../components/ui/Card'
@@ -68,10 +68,6 @@ export default function EpisodeArena() {
 
   // Episode state
   const [reset, setReset] = useState(null)       // ResetObservation
-  const [probeQuestion, setProbeQuestion] = useState('')
-  const [probeResult, setProbeResult] = useState(null)  // WorkerObservation
-  const [probeLoading, setProbeLoading] = useState(false)
-  const [probeUsed, setProbeUsed] = useState(false)
 
   // Inspect form
   const [detection, setDetection] = useState(true)
@@ -94,9 +90,6 @@ export default function EpisodeArena() {
     try {
       const obs = await resetEpisode()
       setReset(obs)
-      setProbeResult(null)
-      setProbeQuestion('')
-      setProbeUsed(false)
       setDetection(true)
       setExplanation('')
       setCorrection('')
@@ -108,23 +101,6 @@ export default function EpisodeArena() {
       setError(e.message)
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function handleProbe() {
-    if (!probeQuestion.trim() || !reset) return
-    setProbeLoading(true); setError(null)
-    try {
-      const obs = await stepEpisode(reset.episode_id, {
-        action_type: 'overseer_probe',
-        question: probeQuestion,
-      })
-      setProbeResult(obs)
-      setProbeUsed(true)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setProbeLoading(false)
     }
   }
 
@@ -200,33 +176,6 @@ export default function EpisodeArena() {
             </div>
           </Card>
 
-          {/* Probe panel */}
-          {phase === 1 && (
-            <Card className="p-5">
-              <h3 className="text-xs font-mono text-muted uppercase tracking-widest mb-1">Phase 2: Probe Worker <span className="text-muted">(optional, once)</span></h3>
-              <p className="text-xs text-muted mb-3">Ask the Worker a clarifying question about its response.</p>
-              {probeUsed ? (
-                <div className="flex items-center gap-2 text-xs text-muted bg-base rounded-lg px-3 py-2 border border-border">
-                  <Info size={12} /> Probe already used this episode
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <textarea
-                    value={probeQuestion}
-                    onChange={e => setProbeQuestion(e.target.value)}
-                    placeholder="e.g. What sources did you cite for the pricing data?"
-                    rows={3}
-                    className="w-full bg-base border border-border rounded-lg px-3 py-2 text-sm text-primary font-mono placeholder:text-muted resize-none focus:border-neon-dim transition-colors"
-                  />
-                  <Button onClick={handleProbe} disabled={probeLoading || !probeQuestion.trim()} size="sm" className="w-full">
-                    {probeLoading ? <Spinner size="sm" /> : <MessageSquare size={12} />}
-                    Send Probe
-                  </Button>
-                </div>
-              )}
-            </Card>
-          )}
-
           {/* State inspector */}
           {phase >= 1 && (
             <Card className="p-4">
@@ -266,29 +215,6 @@ export default function EpisodeArena() {
                     {reset.source_material}
                   </div>
                 </>
-              )}
-            </Card>
-          )}
-
-          {/* Probe result */}
-          {probeResult && (
-            <Card className="p-5">
-              <h4 className="text-xs font-mono text-neon uppercase tracking-widest mb-3">Worker Response (via Probe)</h4>
-              {probeResult.worker_cot && (
-                <div className="mb-3">
-                  <p className="text-xs font-mono text-muted uppercase tracking-widest mb-1">Chain of Thought</p>
-                  <div className="text-xs text-secondary font-mono bg-base rounded p-3 border border-border max-h-32 overflow-auto leading-relaxed whitespace-pre-wrap">
-                    {probeResult.worker_cot}
-                  </div>
-                </div>
-              )}
-              {probeResult.worker_output && (
-                <div>
-                  <p className="text-xs font-mono text-muted uppercase tracking-widest mb-1">Worker Output</p>
-                  <div className="text-sm text-primary bg-base rounded p-3 border border-border max-h-40 overflow-auto leading-relaxed whitespace-pre-wrap">
-                    {probeResult.worker_output}
-                  </div>
-                </div>
               )}
             </Card>
           )}

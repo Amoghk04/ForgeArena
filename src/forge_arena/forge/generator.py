@@ -6,6 +6,7 @@ import uuid
 from typing import Optional
 
 import httpx
+import structlog
 
 from forge_arena.config import Settings
 from forge_arena.models.tasks import (
@@ -40,23 +41,31 @@ class TaskGenerator:
     prompt. Generated tasks enter the seed bank as candidates and must pass
     difficulty estimation before joining the active queue.
 
-    Reward logic (for future joint training — logged only in demo config):
-      - Task lands in learnable zone: 0.80 + tier_bonus
-      - Task too hard (pass@k < 0.20): proportional reduction
-      - Task too easy (pass@k > 0.85): near-zero reward (0.05)
+    Includes an offline self-consistency verifier: after generating a task,
+    the Worker is asked whether the corrupted output contains the corruption.
+    If the Worker can spot its own corruption, the task is too easy and is
+    discarded. This costs one extra API call during generation (offline),
+    not during training.
     """
+
+    _logger = structlog.get_logger("forge.generator")
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._client = httpx.AsyncClient(timeout=90.0)
         self._generation_count = 0
         self._accepted_count = 0
+        self._verification_rejections = 0
 
     @property
     def acceptance_rate(self) -> float:
         if self._generation_count == 0:
             return 0.0
         return self._accepted_count / self._generation_count
+
+    @property
+    def verification_rejections(self) -> int:
+        return self._verification_rejections
 
     def record_acceptance(self, accepted: bool) -> None:
         """Called by the Scheduler when a generated task is promoted to active queue."""
@@ -90,7 +99,25 @@ class TaskGenerator:
 
         prompt = self._build_generation_prompt(seed_task, guidance, current_pass_at_k)
         response = await self._call_inference_api(prompt)
-        return self._parse_task_response(response, seed_task)
+        task = self._parse_task_response(response, seed_task)
+
+        # Offline self-consistency check: if the Worker can detect its own
+        # corruption, the task is too easy and should be discarded.
+        if task.corruption_type and task.corrupted_worker_output:
+            worker_spots_it = await self._verify_corruption_hidden(task)
+            if worker_spots_it:
+                self._verification_rejections += 1
+                self._logger.info(
+                    "variant_rejected_by_verifier",
+                    task_id=task.id,
+                    corruption_type=task.corruption_type.value,
+                )
+                raise ValueError(
+                    f"Generated task {task.id} failed self-consistency: "
+                    f"Worker detected its own {task.corruption_type.value} corruption."
+                )
+
+        return task
 
     def _build_generation_prompt(
         self, seed: Task, guidance: str, current_pass_at_k: float
@@ -160,6 +187,27 @@ class TaskGenerator:
             ground_truth_correction=data.get("ground_truth_correction"),
             is_generated=True,
         )
+
+    async def _verify_corruption_hidden(self, task: Task) -> bool:
+        """Ask the Worker whether the corrupted output contains [corruption_type].
+
+        Returns True if the Worker detects its own corruption (task too easy).
+        This runs offline during task bank construction, never during training.
+        """
+        corruption_name = task.corruption_type.value if task.corruption_type else "corruption"
+        verify_prompt = (
+            f"Read the following output and determine whether it contains a "
+            f"{corruption_name.lower().replace('_', ' ')}. "
+            f"Answer only 'yes' or 'no'.\n\n"
+            f"Output:\n{task.corrupted_worker_output}"
+        )
+        try:
+            response = await self._call_inference_api(verify_prompt)
+            answer = response.strip().lower()
+            return answer.startswith("yes")
+        except Exception:
+            # If the verification call fails, allow the task through
+            return False
 
     async def aclose(self) -> None:
         await self._client.aclose()

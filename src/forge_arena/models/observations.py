@@ -24,21 +24,6 @@ class ResetObservation(_OpenEnvObservation):
     phase: EpisodePhase = EpisodePhase.WORKER_RESPONDING
 
 
-class WorkerObservation(_OpenEnvObservation):
-    """Returned mid-episode once the Worker has responded — Phase 3 entry."""
-
-    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
-
-    episode_id: str
-    task_description: str
-    source_material: str
-    domain: TaskDomain
-    worker_cot: str
-    worker_output: str
-    done: bool = False
-    phase: EpisodePhase = EpisodePhase.OVERSEER_INSPECTING
-
-
 class EpisodeResult(_OpenEnvObservation):
     """Returned after overseer_inspect. Includes ground truth and reward."""
 
@@ -82,6 +67,5 @@ class StateObservation(_OpenEnvObservation):
     task_description: str
     worker_cot: Optional[str]
     worker_output: Optional[str]
-    probe_used: bool
     done: bool
     # Intentionally omits: corruption_present, corruption_type, reward

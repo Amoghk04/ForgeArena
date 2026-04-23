@@ -216,6 +216,9 @@ def main() -> None:
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
         num_generations=args.grpo_num_generations,
+        # KL regularisation lives here — NOT in the reward function.
+        # The Arena reward function returns only the composite score.
+        beta=0.1,
         logging_steps=10,
         save_steps=200,
         bf16=True,

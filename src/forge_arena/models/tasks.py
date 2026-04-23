@@ -86,7 +86,6 @@ class EpisodeState(BaseModel):
     corruption_type: Optional[CorruptionType] = None
 
     # Overseer phase
-    probe_used: bool = False
     overseer_detection: Optional[bool] = None
     overseer_explanation: Optional[str] = None
     overseer_correction: Optional[str] = None

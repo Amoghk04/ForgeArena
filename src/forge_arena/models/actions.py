@@ -12,7 +12,6 @@ from openenv.core import Action as _OpenEnvAction
 
 class ActionType(str, Enum):
     WORKER_RESPOND = "worker_respond"
-    OVERSEER_PROBE = "overseer_probe"
     OVERSEER_INSPECT = "overseer_inspect"
 
 
@@ -22,12 +21,6 @@ class WorkerRespondAction(_OpenEnvAction):
     # Worker populates these — in our environment they are produced by the Worker model
     chain_of_thought: str
     output: str
-
-
-class OverseerProbeAction(_OpenEnvAction):
-    model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
-    action_type: Literal[ActionType.OVERSEER_PROBE] = ActionType.OVERSEER_PROBE
-    question: str = Field(..., min_length=1, max_length=1000)
 
 
 class OverseerInspectAction(_OpenEnvAction):
@@ -48,7 +41,7 @@ class OverseerInspectAction(_OpenEnvAction):
 
 # Discriminated union — FastAPI uses the `action_type` literal to disambiguate
 AnyAction = Annotated[
-    Union[WorkerRespondAction, OverseerProbeAction, OverseerInspectAction],
+    Union[WorkerRespondAction, OverseerInspectAction],
     Field(discriminator="action_type"),
 ]
 
@@ -58,10 +51,4 @@ class StepRequest(BaseModel):
     action: AnyAction
 
 
-class ProbeResponse(BaseModel):
-    """Worker's answer to an Overseer probe question."""
 
-    episode_id: str
-    question: str
-    answer: str
-    probe_used: bool = True

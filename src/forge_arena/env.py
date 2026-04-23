@@ -26,18 +26,16 @@ from pydantic import ConfigDict, TypeAdapter
 from forge_arena.arena.episode import EpisodeManager, EpisodeStore
 from forge_arena.forge.scheduler import TaskScheduler
 from forge_arena.graders.composite import CompositeGrader
-from forge_arena.models.actions import AnyAction, OverseerInspectAction, OverseerProbeAction
+from forge_arena.models.actions import AnyAction, OverseerInspectAction
 from forge_arena.models.observations import (
     EpisodeResult,
     ResetObservation,
     StateObservation,
-    WorkerObservation,
 )
 
 # ---------------------------------------------------------------------------
 # AnyForgeAction — openenv-compatible root that delegates to the discriminated
-# union so HTTPEnvServer can deserialise both WorkerRespondAction,
-# OverseerProbeAction, and OverseerInspectAction from the wire payload.
+# union so HTTPEnvServer can deserialise OverseerInspectAction from the wire payload.
 # ---------------------------------------------------------------------------
 _any_adapter: TypeAdapter[AnyAction] = TypeAdapter(AnyAction)
 
@@ -46,7 +44,7 @@ class AnyForgeAction(_OpenEnvAction):
     """Thin openenv Action subclass used only as the action_cls sentinel.
 
     model_validate() is overridden to delegate to the AnyAction discriminated
-    union so that both probe and inspect actions deserialise correctly.
+    union so that inspect actions deserialise correctly.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -98,7 +96,7 @@ class ForgeArenaEnvironment(Environment):
     def reset(self, seed: Optional[int] = None, episode_id: Optional[str] = None, **kwargs) -> ResetObservation:  # type: ignore[override]
         raise NotImplementedError("ForgeArenaEnvironment is async-only. Use reset_async().")
 
-    def step(self, action: AnyAction, timeout_s: Optional[float] = None, **kwargs) -> WorkerObservation | EpisodeResult:  # type: ignore[override]
+    def step(self, action: AnyAction, timeout_s: Optional[float] = None, **kwargs) -> EpisodeResult:  # type: ignore[override]
         raise NotImplementedError("ForgeArenaEnvironment is async-only. Use step_async().")
 
     # ──────────────────────────────────────────────────────────────
@@ -125,15 +123,15 @@ class ForgeArenaEnvironment(Environment):
         action: AnyAction,
         timeout_s: Optional[float] = None,
         **kwargs,
-    ) -> WorkerObservation | EpisodeResult:
+    ) -> EpisodeResult:
         """Advance the episode.
 
         ``episode_id`` must be present in ``kwargs`` (sent as an extra field on
         the openenv StepRequest body, which has ``extra="allow"``). Falls back to
         ``self._episode_id`` for WebSocket / direct-use sessions.
 
-        - OverseerProbeAction  → WorkerObservation (done=False, reward=None)
-        - OverseerInspectAction → grades submission, returns EpisodeResult (done=True)
+        OverseerInspectAction → grades submission, returns EpisodeResult (done=True).
+        Fixed-length episodes: reset → overseer_inspect → done.
         """
         episode_id: Optional[str] = kwargs.get("episode_id") or self._episode_id
         if not episode_id:
@@ -143,10 +141,7 @@ class ForgeArenaEnvironment(Environment):
                 detail="episode_id is required in the step request body",
             )
 
-        if isinstance(action, OverseerProbeAction):
-            return await self._manager.step_probe(episode_id, action)
-
-        elif isinstance(action, OverseerInspectAction):
+        if isinstance(action, OverseerInspectAction):
             episode_state = EpisodeStore.get(episode_id)
             if episode_state is None:
                 from fastapi import HTTPException
@@ -164,6 +159,7 @@ class ForgeArenaEnvironment(Environment):
                 overseer_explanation=action.explanation,
                 overseer_correction=action.correction,
                 overseer_confidence=action.confidence,
+                overseer_accuracy=self._manager.worker.rolling_detection_accuracy,
             )
             result = self._manager.step_inspect(
                 episode_id=episode_id,
@@ -174,6 +170,9 @@ class ForgeArenaEnvironment(Environment):
                 correction_score=composite_reward_obj.correction.score,
                 calibration_score=composite_reward_obj.calibration.score,
             )
+            # Record detection outcome for adversarial temperature scaling
+            overseer_correct = action.detection == episode_state.corruption_present
+            self._manager.worker.record_detection_outcome(overseer_correct)
             # Advance the Forge scheduler after each terminal action
             await self._scheduler.update(lambda t: False)
             return result

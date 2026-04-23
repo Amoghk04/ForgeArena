@@ -4,7 +4,6 @@ from forge_arena.models.actions import (
     ActionType,
     AnyAction,
     OverseerInspectAction,
-    OverseerProbeAction,
     StepRequest,
     WorkerRespondAction,
 )
@@ -12,7 +11,6 @@ from forge_arena.models.observations import (
     EpisodeResult,
     ResetObservation,
     StateObservation,
-    WorkerObservation,
 )
 from forge_arena.models.rewards import (
     BaselineScores,
@@ -49,12 +47,10 @@ __all__ = [
     "ActionType",
     "AnyAction",
     "WorkerRespondAction",
-    "OverseerProbeAction",
     "OverseerInspectAction",
     "StepRequest",
     # observations
     "ResetObservation",
-    "WorkerObservation",
     "EpisodeResult",
     "StateObservation",
     # rewards

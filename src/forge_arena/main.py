@@ -298,6 +298,8 @@ async def oversight_stats() -> OversightStats:
             per_corruption_explanation={},
             per_domain_correction={},
             mean_composite_reward=0.0,
+            worker_obfuscation_level=_episode_manager.worker.obfuscation_level if _episode_manager else 0,
+            worker_top_p=_episode_manager.worker.current_top_p if _episode_manager else 0.90,
         )
 
     correct_detections = sum(
@@ -340,6 +342,8 @@ async def oversight_stats() -> OversightStats:
             k: sum(v) / len(v) for k, v in per_domain_corr.items() if v
         },
         mean_composite_reward=sum(s.reward for s in done if s.reward is not None) / max(1, total),
+        worker_obfuscation_level=_episode_manager.worker.obfuscation_level if _episode_manager else 0,
+        worker_top_p=_episode_manager.worker.current_top_p if _episode_manager else 0.90,
     )
 
 

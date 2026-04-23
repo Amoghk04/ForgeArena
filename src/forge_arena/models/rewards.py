@@ -91,6 +91,8 @@ class OversightStats(BaseModel):
     per_corruption_explanation: dict[str, float]
     per_domain_correction: dict[str, float]
     mean_composite_reward: float
+    worker_obfuscation_level: int = 0
+    worker_top_p: float = 0.90
 
 
 class BaselineScores(BaseModel):

@@ -314,25 +314,22 @@ def main() -> None:
         save_steps=200,
         bf16=True,
         report_to="none",
+        model_init_kwargs=base_model_kwargs,
     )
 
     reward_fn = ArenaRewardFunction(args.server_url)
 
     trainer = GRPOTrainer(
         model=args.model_path,
-        ref_model=ref_model_path,
         args=grpo_config,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=dataset,
         reward_funcs=[reward_fn],
-        model_init_kwargs=base_model_kwargs,
-        ref_model_init_kwargs=base_model_kwargs,
     )
 
     logger.info(
         "Starting GRPO training",
         model_path=args.model_path,
-        ref_model_path=ref_model_path,
         use_4bit=args.use_4bit,
         **{k: v for k, v in vars(args).items() if k not in ("model_path", "ref_model_path", "use_4bit")},
     )

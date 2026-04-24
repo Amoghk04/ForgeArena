@@ -71,6 +71,9 @@ class ArenaRewardFunction:
     def __init__(self, server_url: str) -> None:
         self._base = server_url.rstrip("/")
         self._client = httpx.Client(timeout=30.0)
+        # TRL 0.29 reads reward_func.__name__ to label logged metrics.
+        # Callable class instances don't have __name__; set it explicitly.
+        self.__name__ = "arena_reward"
 
     def __call__(
         self,

@@ -165,12 +165,14 @@ def build_episode_dataset(server_url: str, num_episodes: int = 256) -> list[dict
             # endpoint, so the episode does not need to remain open.
             try:
                 step_body = {
-                    "action_type": "overseer_inspect",
                     "episode_id": episode_id,
-                    "detection": False,
-                    "confidence": 0.5,
-                    "explanation": "",
-                    "correction": "",
+                    "action": {
+                        "action_type": "overseer_inspect",
+                        "detection": False,
+                        "confidence": 0.5,
+                        "explanation": "",
+                        "correction": "",
+                    },
                 }
                 step_resp = client.post(f"{base}/step", json=step_body)
                 step_resp.raise_for_status()

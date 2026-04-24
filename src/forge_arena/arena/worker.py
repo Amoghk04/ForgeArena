@@ -234,12 +234,16 @@ class WorkerAgent:
         import torch
         from transformers import pipeline as hf_pipeline
 
-        return hf_pipeline(
+        pipe = hf_pipeline(
             "text-generation",
             model=model_path,
             torch_dtype=torch.bfloat16,
             device_map="auto",
         )
+        # Clear the model-level max_length default (20) so it does not conflict
+        # with the per-call max_new_tokens argument and trigger a noisy warning.
+        pipe.model.generation_config.max_length = None
+        return pipe
 
     def _parse_cot_and_output(self, response_text: str) -> tuple[str, str]:
         """Split the model response into chain-of-thought and final output.

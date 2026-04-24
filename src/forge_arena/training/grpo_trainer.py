@@ -150,7 +150,8 @@ def build_episode_dataset(server_url: str, num_episodes: int = 256) -> list[dict
             try:
                 reset_resp = client.post(f"{base}/reset")
                 reset_resp.raise_for_status()
-                reset_obs = reset_resp.json()
+                # openenv HTTPEnvServer wraps responses: {"observation": {...}, "reward": null, "done": false}
+                reset_obs = reset_resp.json().get("observation", reset_resp.json())
             except httpx.HTTPError as exc:
                 logger.warning("Reset failed", error=str(exc))
                 time.sleep(QUEUE_POLL_INTERVAL_S)

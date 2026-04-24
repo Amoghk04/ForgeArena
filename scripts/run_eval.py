@@ -22,6 +22,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from dotenv import load_dotenv
 import httpx
 
@@ -104,6 +105,54 @@ class Results:
 
 
 # ---------------------------------------------------------------------------
+# Local pipeline (loaded once, reused across episodes)
+# ---------------------------------------------------------------------------
+
+_LOCAL_PIPELINE: Any = None
+
+
+def load_local_pipeline(model_path: str) -> None:
+    """Load the GRPO-trained Overseer from a local directory into a global pipeline.
+
+    Call once at startup when --local-model-path is provided.  The pipeline is
+    stored in ``_LOCAL_PIPELINE`` and reused for every episode so the model is
+    only loaded once.
+    """
+    global _LOCAL_PIPELINE
+    import torch
+    from transformers import pipeline as hf_pipeline
+
+    print(f"Loading local Overseer from {model_path} ...", flush=True)
+    pipe = hf_pipeline(
+        "text-generation",
+        model=model_path,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+    )
+    # Clear the 20-token max_length default that Qwen ships in generation_config.json
+    # so it doesn't conflict with max_new_tokens.
+    if hasattr(pipe.model, "generation_config"):
+        pipe.model.generation_config.max_length = None
+    _LOCAL_PIPELINE = pipe
+    print("Local Overseer loaded.", flush=True)
+
+
+def _call_local_pipeline(messages: list[dict]) -> str:
+    """Run the local pipeline synchronously and return the assistant text."""
+    assert _LOCAL_PIPELINE is not None
+    outputs = _LOCAL_PIPELINE(
+        messages,
+        max_new_tokens=512,
+        temperature=0.2,
+        do_sample=True,
+    )
+    # pipeline returns [{"generated_text": [{"role": ..., "content": ...}, ...]}, ...]
+    generated = outputs[0]["generated_text"]
+    # The last message is the assistant reply
+    return generated[-1]["content"].strip()
+
+
+# ---------------------------------------------------------------------------
 # Overseer model call
 # ---------------------------------------------------------------------------
 
@@ -113,36 +162,47 @@ async def call_overseer(
     worker_cot: str,
     worker_output: str,
 ) -> dict:
-    """Call the Overseer model and parse its JSON response."""
+    """Call the Overseer model and parse its JSON response.
+
+    Routes to the local pipeline when ``_LOCAL_PIPELINE`` is loaded
+    (``--local-model-path`` was provided), otherwise calls the HF Inference API.
+    """
     user_message = (
         f"Task:\n{task_description}\n\n"
         f"Worker chain-of-thought:\n{worker_cot or '(not available)'}\n\n"
         f"Worker output:\n{worker_output}"
     )
-    resp = await client.post(
-        INFERENCE_URL,
-        headers={
-            "Authorization": f"Bearer {HF_TOKEN}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": OVERSEER_MODEL,
-            "messages": [
-                {"role": "system", "content": OVERSEER_SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
-            "max_tokens": 512,
-            "temperature": 0.2,
-        },
-        timeout=60.0,
-    )
-    if resp.status_code == 402:
-        raise HFCreditsDepletedError(resp.text)
-    if resp.status_code >= 400:
-        raise httpx.HTTPStatusError(
-            f"{resp.status_code}: {resp.text}", request=resp.request, response=resp
+    messages = [
+        {"role": "system", "content": OVERSEER_SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+
+    if _LOCAL_PIPELINE is not None:
+        # Run blocking pipeline call in a thread so we don't block the event loop.
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(None, _call_local_pipeline, messages)
+    else:
+        resp = await client.post(
+            INFERENCE_URL,
+            headers={
+                "Authorization": f"Bearer {HF_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": OVERSEER_MODEL,
+                "messages": messages,
+                "max_tokens": 512,
+                "temperature": 0.2,
+            },
+            timeout=60.0,
         )
-    text = resp.json()["choices"][0]["message"]["content"].strip()
+        if resp.status_code == 402:
+            raise HFCreditsDepletedError(resp.text)
+        if resp.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"{resp.status_code}: {resp.text}", request=resp.request, response=resp
+            )
+        text = resp.json()["choices"][0]["message"]["content"].strip()
 
     # Strip markdown code fences if present
     if text.startswith("```"):
@@ -307,11 +367,15 @@ async def main(
     episodes: int,
     verbose: bool,
     output: str | None,
+    local_model_path: str | None = None,
     hf_wait_seconds: int = DEFAULT_HF_WAIT_SECONDS,
     max_hf_retries: int = DEFAULT_MAX_HF_RETRIES,
 ) -> None:
-    if not HF_TOKEN:
+    if local_model_path:
+        load_local_pipeline(local_model_path)
+    elif not HF_TOKEN:
         print("ERROR: HF_TOKEN environment variable is not set.", file=sys.stderr)
+        print("Either set HF_TOKEN or pass --local-model-path outputs/overseer-grpo", file=sys.stderr)
         sys.exit(1)
 
     # Check server is up
@@ -325,7 +389,8 @@ async def main(
             sys.exit(1)
 
     print(f"Server online at {base_url}")
-    print(f"Running {episodes} episodes with Overseer={OVERSEER_MODEL}")
+    overseer_label = local_model_path or OVERSEER_MODEL
+    print(f"Running {episodes} episodes with Overseer={overseer_label}")
     print("-" * 60)
 
     results = Results()
@@ -383,6 +448,15 @@ if __name__ == "__main__":
         default=DEFAULT_MAX_HF_RETRIES,
         help=f"Maximum number of HF credit-depletion retries per episode (default: {DEFAULT_MAX_HF_RETRIES})",
     )
+    parser.add_argument(
+        "--local-model-path",
+        default=None,
+        help=(
+            "Path to a locally saved Overseer model (e.g. outputs/overseer-grpo). "
+            "When set, inference runs on GPU via a local transformers pipeline "
+            "instead of the HF Inference API. HF_TOKEN is not required."
+        ),
+    )
     args = parser.parse_args()
 
     asyncio.run(main(
@@ -390,6 +464,7 @@ if __name__ == "__main__":
         args.episodes,
         args.verbose,
         args.output,
+        local_model_path=args.local_model_path,
         hf_wait_seconds=args.hf_wait_seconds,
         max_hf_retries=args.max_hf_retries,
     ))

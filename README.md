@@ -1,3 +1,14 @@
+---
+title: Forge Arena
+emoji: 🔥
+colorFrom: red
+colorTo: pink
+sdk: docker
+pinned: false
+license: apache-2.0
+---
+
+
 # Forge + Arena
 
 An adaptive RL training environment for AI oversight capability. Targets the *scalable oversight problem*: training a weaker Overseer model (Qwen2.5-1.5B-Instruct) to reliably detect subtle corruptions injected into outputs from a stronger Worker model (Qwen2.5-7B-Instruct).

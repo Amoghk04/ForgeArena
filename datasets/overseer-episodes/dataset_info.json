@@ -1,0 +1,44 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "prompt": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "episode_id": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "task_description": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "worker_cot": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "worker_output": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "corruption_present": {
+      "dtype": "bool",
+      "_type": "Value"
+    },
+    "corruption_type": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "ground_truth_output": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "domains": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": ""
+}

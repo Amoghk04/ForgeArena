@@ -188,8 +188,12 @@ class ForgeArenaEnvironment(Environment):
             # receives real signal rather than always-False (which would pin
             # pass@k = 0.0 and flush every task to the too-hard archive at
             # the batch re-estimation step).
+            # Skip when dry_run=True (dataset-collection dummy steps) for the
+            # same reason: dummy detections are always False and would corrupt
+            # pass@k estimates across the entire task bank.
             _detected = composite_reward_obj.detection.score > 0.5
-            await self._scheduler.update(lambda t: _detected)
+            if not action.dry_run:
+                await self._scheduler.update(lambda t: _detected)
 
             # Update rolling detection history (window = 20 episodes).
             self._detection_history.append(float(_detected))

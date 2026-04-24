@@ -139,7 +139,7 @@ class ArenaRewardFunction:
 # Episode dataset builder
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_episode_dataset(server_url: str, num_episodes: int = 256, concurrency: int = 8) -> list[dict[str, Any]]:
+def build_episode_dataset(server_url: str, num_episodes: int = 256, concurrency: int = 4) -> list[dict[str, Any]]:
     """Roll out ``num_episodes`` against the Arena server and collect episode data.
 
     Episodes are fetched concurrently (up to ``concurrency`` in flight at once)
@@ -163,7 +163,7 @@ async def _fetch_one_episode(
             reset_resp.raise_for_status()
             reset_obs = reset_resp.json().get("observation", reset_resp.json())
         except httpx.HTTPError as exc:
-            logger.warning("Reset failed", error=str(exc))
+            logger.warning("Reset failed", error=str(exc) or type(exc).__name__)
             return None
 
         episode_id = reset_obs["episode_id"]
@@ -177,13 +177,14 @@ async def _fetch_one_episode(
                     "confidence": 0.5,
                     "explanation": "",
                     "correction": "",
+                    "dry_run": True,
                 },
             }
             step_resp = await client.post(f"{base}/step", json=step_body)
             step_resp.raise_for_status()
             step_obs = step_resp.json().get("observation", {})
         except httpx.HTTPError as exc:
-            logger.warning("Step failed during dataset build", error=str(exc))
+            logger.warning("Step failed during dataset build", error=str(exc) or type(exc).__name__)
             return None
 
         return {
@@ -204,7 +205,11 @@ async def _build_episode_dataset_async(
 ) -> list[dict[str, Any]]:
     base = server_url.rstrip("/")
     semaphore = asyncio.Semaphore(concurrency)
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    # 300 s per request: Qwen2.5-7B can take >60 s when the server is handling
+    # multiple concurrent Worker generations.  60 s caused silent ReadTimeout
+    # failures (str(ReadTimeout()) == "") that produced blank "Reset failed"
+    # log entries and reduced the dataset by ~12 %.
+    async with httpx.AsyncClient(timeout=300.0) as client:
         tasks = [_fetch_one_episode(client, base, semaphore) for _ in range(num_episodes)]
         results = await asyncio.gather(*tasks)
     return [r for r in results if r is not None]
@@ -250,7 +255,7 @@ def main() -> None:
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=8,
+        default=4,
         help="Number of concurrent /reset+/step calls during dataset collection.",
     )
     parser.add_argument("--per-device-batch-size", type=int, default=4)

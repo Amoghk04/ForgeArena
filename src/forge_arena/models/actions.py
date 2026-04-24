@@ -37,6 +37,10 @@ class OverseerInspectAction(_OpenEnvAction):
     explanation: str = Field(default="", max_length=4000)
     correction: str = Field(default="", max_length=4000)
     confidence: float = Field(..., ge=0.0, le=1.0)
+    # Set to True for dataset-collection dummy steps so the Forge scheduler
+    # does not count them as real Overseer evaluations (which would corrupt
+    # pass@k estimates and drain the learnable queue).
+    dry_run: bool = False
 
     @field_validator("explanation")
     @classmethod

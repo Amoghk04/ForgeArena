@@ -1,2 +1,2 @@
-datasets/
-ui/node_modules/
+datasets/**/*
+ui/node_modules/*

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -47,11 +48,14 @@ class TaskGenerator:
       - Task too easy (pass@k > 0.85): near-zero reward (0.05)
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, pipeline: Any = None) -> None:
         self._settings = settings
         self._client = httpx.AsyncClient(timeout=90.0)
         self._generation_count = 0
         self._accepted_count = 0
+        # Pre-loaded transformers pipeline shared with WorkerAgent — avoids
+        # loading the 7B model a second time when running in local-model mode.
+        self._local_pipeline = pipeline
 
     @property
     def acceptance_rate(self) -> float:
@@ -115,6 +119,9 @@ class TaskGenerator:
         )
 
     async def _call_inference_api(self, user_prompt: str) -> str:
+        if self._local_pipeline is not None:
+            return await self._call_local_model(user_prompt)
+
         cfg = self._settings.worker_model
         headers = {}
         if self._settings.hf_api_key:
@@ -134,6 +141,26 @@ class TaskGenerator:
         response = await self._client.post(url, json=payload, headers=headers)
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
+
+    async def _call_local_model(self, user_prompt: str) -> str:
+        """Run generation via the shared local pipeline in a thread-pool executor."""
+        cfg = self._settings.worker_model
+        messages = [
+            {"role": "system", "content": _GENERATOR_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        def _generate() -> str:
+            result = self._local_pipeline(
+                messages,
+                max_new_tokens=2048,
+                temperature=0.8,
+                do_sample=True,
+            )
+            return result[0]["generated_text"][-1]["content"]
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _generate)
 
     def _parse_task_response(self, response_text: str, seed: Task) -> Task:
         """Parse the generator's JSON response into a Task object."""

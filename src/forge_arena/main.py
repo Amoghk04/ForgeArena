@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
 
     _episode_counter: list[int] = []
     estimator = DifficultyEstimator(settings.forge, _episode_counter)
-    generator = TaskGenerator(settings)
+    generator = TaskGenerator(settings, pipeline=worker._local_pipeline)
     _scheduler = TaskScheduler(settings.forge, estimator, generator)
 
     # Dummy no-op policy for initial estimation (no training data yet)

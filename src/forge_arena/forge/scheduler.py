@@ -72,12 +72,17 @@ class TaskScheduler:
     def request_task(self) -> Task:
         """Return the next learnable task.
 
-        Raises QueueEmptyError if the queue is empty during replenishment.
+        If the active queue is empty (all seed tasks consumed in a long eval
+        run) the original seed tasks are cycled back in before popping.
+        QueueEmptyError is only raised in the degenerate case where the seed
+        bank itself is empty (i.e. initialise() was never called).
         """
         if not self._active_queue:
+            self._refill_from_seed_bank()
+        if not self._active_queue:
             raise QueueEmptyError(
-                "Active task queue is empty. Replenishment is in progress. "
-                "Retry after a short delay."
+                "Active task queue is empty and seed bank is also empty. "
+                "Call initialise() before requesting tasks."
             )
         return self._active_queue.popleft()
 
@@ -164,6 +169,12 @@ class TaskScheduler:
             self._record_snapshot(snap)
             self._route_task(task, snap.difficulty_tier)
 
+        # Safety net: if the policy classified every task as too-hard (e.g.
+        # during early training when the overseer is near-random), refill from
+        # the original seed bank so the queue is never left completely empty.
+        if not self._active_queue:
+            self._refill_from_seed_bank()
+
     async def _replenish(self, overseer_policy: OverseerPolicy) -> None:
         """Generate and estimate new tasks to replenish the active queue."""
         if self._replenishment_in_progress:
@@ -201,6 +212,21 @@ class TaskScheduler:
             return t
         # Fall back to any task in the seed bank
         return self._seed_bank[0] if self._seed_bank else None
+
+    def _refill_from_seed_bank(self) -> None:
+        """Reload original (non-generated) seed tasks back into the active queue.
+
+        Called when the active queue is empty — either because all seed tasks
+        have been consumed during a long eval run, or because _batch_reestimate
+        classified every task as too-hard (which happens when the overseer
+        policy is near-random early in training).  Only original seed tasks are
+        cycled back; generated variants are excluded because they may have been
+        estimated against an older policy and their difficulty scores are stale.
+        """
+        seed_tasks = [t for t in self._seed_bank if not t.is_generated]
+        for task in seed_tasks:
+            task.difficulty_tier = DifficultyTier.LEARNABLE
+            self._active_queue.append(task)
 
     def _count_tier_transitions(self) -> int:
         count = 0

@@ -58,6 +58,7 @@ class CompositeGrader:
         overseer_explanation: str,
         overseer_correction: str,
         overseer_confidence: float,
+        overseer_accuracy: float = 0.0,
     ) -> CompositeReward:
         """Score a complete Overseer submission and return the composite reward."""
 
@@ -68,6 +69,7 @@ class CompositeGrader:
             corruption_type=corruption_type,
             explanation=overseer_explanation,
             worker_output=ground_truth_output,  # compare against ground truth
+            overseer_accuracy=overseer_accuracy,
         )
 
         cor: CorrectionScore = self._correction.score(

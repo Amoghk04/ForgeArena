@@ -85,6 +85,8 @@ class EpisodeManager:
             task_description=task.task_description,
             source_material=task.source_material,
             domain=domain,
+            worker_cot=worker_cot,
+            worker_output=worker_output,
             done=False,
             phase=EpisodePhase.OVERSEER_INSPECTING,
         )

@@ -7,6 +7,7 @@ from typing import Optional
 
 import httpx
 
+from forge_arena.arena.corruptions.types import CORRUPTION_REGISTRY
 from forge_arena.config import Settings
 from forge_arena.models.tasks import (
     CorruptionType,
@@ -146,7 +147,7 @@ class TaskGenerator:
 
         data = json.loads(json_match.group())
 
-        return Task(
+        task = Task(
             id=str(uuid.uuid4()),
             domain=seed.domain,
             corruption_type=seed.corruption_type,
@@ -160,6 +161,42 @@ class TaskGenerator:
             ground_truth_correction=data.get("ground_truth_correction"),
             is_generated=True,
         )
+
+        if not self._validate_generated_task(task):
+            raise ValueError(
+                f"Generated task failed trigger-vocab validation for "
+                f"corruption_type={task.corruption_type}"
+            )
+
+        return task
+
+    @staticmethod
+    def _validate_generated_task(task: Task) -> bool:
+        """Check that a generated corrupted task is plausibly detectable.
+
+        For corrupted tasks, at least one trigger-vocab phrase from the
+        corruption type's CORRUPTION_REGISTRY entry must appear in either
+        the ``corruption_explanation`` or the ``corrupted_worker_output``
+        fields.  Clean tasks are always valid.
+        """
+        if task.corruption_type is None:
+            return True
+
+        meta = CORRUPTION_REGISTRY.get(task.corruption_type)
+        if meta is None:
+            return True
+
+        search_text = " ".join(
+            filter(
+                None,
+                [
+                    task.corruption_explanation or "",
+                    task.corrupted_worker_output or "",
+                ],
+            )
+        ).lower()
+
+        return any(phrase in search_text for phrase in meta.trigger_vocab)
 
     async def aclose(self) -> None:
         await self._client.aclose()

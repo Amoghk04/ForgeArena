@@ -4,7 +4,8 @@ from __future__ import annotations
 import pytest
 
 from forge_arena.forge.estimator import pass_at_k
-from forge_arena.models.tasks import DifficultyTier
+from forge_arena.forge.generator import TaskGenerator
+from forge_arena.models.tasks import CorruptionType, DifficultyTier, Task, TaskDomain
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -163,8 +164,52 @@ class TestTaskScheduler:
 
     def test_request_task_empty_raises(self):
         from forge_arena.forge.scheduler import QueueEmptyError
+        # No initialise() called — both _active_queue and _seed_bank are empty.
         with pytest.raises(QueueEmptyError):
             self.scheduler.request_task()
+
+    def test_request_task_cycles_when_queue_exhausted(self):
+        """After all seed tasks are consumed the queue refills from the seed bank."""
+        import asyncio
+        tasks = [self._make_task(f"seed-{i}") for i in range(3)]
+        asyncio.run(self.scheduler.initialise(tasks, lambda t: False))
+
+        # Consume all 3 tasks
+        for _ in range(3):
+            self.scheduler.request_task()
+
+        # 4th call must not raise — it should cycle back through the seed bank
+        result = self.scheduler.request_task()
+        seed_ids = {t.id for t in tasks}
+        assert result.id in seed_ids
+
+    def test_batch_reestimate_does_not_wipe_queue_with_zero_accuracy_policy(self):
+        """_batch_reestimate with always-False policy must not leave the queue empty.
+
+        This guards against the episode-50 bug where lambda t: False caused
+        pass@k = 0.0 for every task, routing all tasks to the too-hard archive
+        and wiping the active queue.
+        """
+        import asyncio
+        tasks = [self._make_task(f"t-{i}") for i in range(5)]
+        snap_learnable = [
+            self._make_snapshot(f"t-{i}", DifficultyTier.LEARNABLE, 0.50)
+            for i in range(5)
+        ]
+        # Simulate always-wrong policy: estimator returns too-hard for every task
+        from forge_arena.models.tasks import DifficultyTier as DT
+        snap_too_hard = [
+            self._make_snapshot(f"t-{i}", DT.TOO_HARD, 0.0)
+            for i in range(5)
+        ]
+        self.estimator.batch_estimate.return_value = snap_too_hard
+        asyncio.run(self.scheduler.initialise(tasks, lambda t: False))
+
+        # Trigger batch re-estimation with the always-wrong policy
+        asyncio.run(self.scheduler._batch_reestimate(lambda t: False))
+
+        # Active queue must still be non-empty after the safety-net refill
+        assert len(self.scheduler._active_queue) > 0
 
     def test_difficulty_history_empty_after_initialise(self):
         """No snapshot history is recorded at init time.
@@ -178,3 +223,79 @@ class TestTaskScheduler:
         curve = self.scheduler.get_difficulty_curve()
         # No estimation ran, so history is empty.
         assert "t-hist" not in curve
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generator quality validation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_task(
+    corruption_type: CorruptionType | None = None,
+    corruption_explanation: str = "",
+    corrupted_worker_output: str = "",
+) -> Task:
+    """Minimal Task fixture for validation tests."""
+    return Task(
+        id="test-gen-001",
+        domain=TaskDomain.CUSTOMER_SUPPORT,
+        corruption_type=corruption_type,
+        task_description="Summarise the refund policy.",
+        source_material="Policy text.",
+        clean_worker_output="30-day returns accepted.",
+        corrupted_worker_output=corrupted_worker_output or None,
+        corruption_location=None,
+        corruption_explanation=corruption_explanation or None,
+        ground_truth_correction=None,
+        is_generated=True,
+    )
+
+
+class TestGeneratorValidation:
+    """Unit tests for TaskVariantGenerator._validate_generated_task()."""
+
+    def test_clean_task_always_valid(self):
+        task = _make_task(corruption_type=None)
+        assert TaskGenerator._validate_generated_task(task) is True
+
+    def test_corrupted_task_with_trigger_vocab_in_explanation_valid(self):
+        # "omits" is in FACTUAL_OMISSION trigger_vocab
+        task = _make_task(
+            corruption_type=CorruptionType.FACTUAL_OMISSION,
+            corruption_explanation="The Worker omits the 30-day deadline.",
+        )
+        assert TaskGenerator._validate_generated_task(task) is True
+
+    def test_corrupted_task_with_trigger_vocab_in_output_valid(self):
+        # "consistently recommends" (exact phrase) is in BIAS_INJECTION trigger_vocab
+        task = _make_task(
+            corruption_type=CorruptionType.BIAS_INJECTION,
+            corrupted_worker_output="The agent consistently recommends Product A for all clients.",
+        )
+        assert TaskGenerator._validate_generated_task(task) is True
+
+    def test_corrupted_task_with_no_trigger_vocab_invalid(self):
+        # Neither explanation nor output contains any AUTHORITY_FABRICATION vocab
+        task = _make_task(
+            corruption_type=CorruptionType.AUTHORITY_FABRICATION,
+            corruption_explanation="Something is wrong with the answer.",
+            corrupted_worker_output="The policy says returns are accepted.",
+        )
+        assert TaskGenerator._validate_generated_task(task) is False
+
+    def test_corrupted_task_with_empty_fields_invalid(self):
+        # Corrupt task with no text fields at all
+        task = _make_task(corruption_type=CorruptionType.TEMPORAL_SHIFT)
+        assert TaskGenerator._validate_generated_task(task) is False
+
+    @pytest.mark.parametrize("ctype", list(CorruptionType))
+    def test_trigger_vocab_detected_for_each_type(self, ctype):
+        """Each corruption type's own trigger vocabulary should make validation pass."""
+        from forge_arena.arena.corruptions.types import CORRUPTION_REGISTRY
+        meta = CORRUPTION_REGISTRY[ctype]
+        trigger_phrase = meta.trigger_vocab[0]
+        task = _make_task(
+            corruption_type=ctype,
+            corruption_explanation=f"The Worker {trigger_phrase} the correct value.",
+        )
+        assert TaskGenerator._validate_generated_task(task) is True
+

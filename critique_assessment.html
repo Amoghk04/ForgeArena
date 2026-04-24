@@ -1,0 +1,89 @@
+
+<style>
+.card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1.1rem 1.25rem; margin-bottom: 0.85rem; }
+.verdict-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.verdict-badge { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 999px; flex-shrink: 0; }
+.accept { background: #EAF3DE; color: #27500A; }
+.partial { background: #FAEEDA; color: #633806; }
+.reject { background: #FCEBEB; color: #501313; }
+.title { font-size: 14px; font-weight: 500; color: var(--color-text-primary); }
+.body { font-size: 12.5px; color: var(--color-text-secondary); line-height: 1.65; margin-top: 6px; }
+.sub { font-size: 11px; color: var(--color-text-tertiary); margin-top: 2px; }
+.pro-con { display: flex; gap: 12px; margin-top: 8px; }
+.pro, .con { flex: 1; font-size: 11.5px; line-height: 1.6; padding: 8px 10px; border-radius: var(--border-radius-md); }
+.pro { background: var(--color-background-success); color: var(--color-text-success); }
+.con { background: var(--color-background-danger); color: var(--color-text-danger); }
+.section-label { font-size: 11px; font-weight: 500; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; margin: 1.25rem 0 0.65rem; }
+</style>
+
+<div style="padding: 0.25rem 0 1rem;">
+
+<div class="section-label">Suggestions from the critique — assessed honestly</div>
+
+<div class="card">
+  <div class="verdict-row">
+    <span class="verdict-badge reject">Reject as described</span>
+    <span class="title">1. Senior Auditor persona for Snorkel AI bonus</span>
+  </div>
+  <div class="body">The critique correctly identifies a gap — the Snorkel AI bonus does say "changing requirements/preferences." But the proposed fix (renaming the Difficulty Estimator as a persona) is cosmetic window-dressing, not a real implementation change. A "Senior Auditor" label on a pass@k function doesn't hit the bonus any better than calling it an Estimator. What actually satisfies Snorkel AI is that the grading rubric itself changes as the Overseer improves — stricter penalties, higher specificity thresholds at higher tiers. That's a real behaviour change, not a rename.</div>
+  <div class="pro-con">
+    <div class="pro">Real fix: make the explanation grader's rubric stricter at higher Overseer tiers — raise the type-naming threshold from keyword match to exact phrasing, require sentence-level citation rather than paragraph-level. That's changing requirements with substance.</div>
+    <div class="con">Reject: "re-skin" as a persona adds zero code, zero behavioural change, and judges who read the design will see through it immediately. The persona framing is a pitch trick, not an engineering decision.</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="verdict-row">
+    <span class="verdict-badge partial">Accept — but scope it carefully</span>
+    <span class="title">2. Verifier step for generated ground truth</span>
+  </div>
+  <div class="body">This is a legitimate concern. If the Task Generator produces a task where the "corruption" it injected doesn't actually match the ground truth label, the detection grader returns noise and GRPO gets a contradictory signal. The critique is right that this matters. However, calling a frontier model API (Llama 4 Maverick) in the hot path of task generation adds latency, cost, and an external dependency that can fail during the 48-hour demo. The verifier belongs in the task bank construction pipeline — offline, before tasks enter the queue — not as a live API call during training.</div>
+  <div class="pro-con">
+    <div class="pro">Accept the principle: validate generated tasks before promoting them to the active queue. Run a verification pass on the generated task JSON offline. Log tasks that fail verification for manual inspection.</div>
+    <div class="con">Reject the implementation: a live frontier model API call in the generation loop is a single point of failure during the demo. If the Llama 4 API is slow or rate-limited, training stalls. Run verification offline or use the Worker model itself as a self-consistency check — cheaper and always available.</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="verdict-row">
+    <span class="verdict-badge accept">Accept</span>
+    <span class="title">3. Adversarial temperature scaling for the Worker</span>
+  </div>
+  <div class="body">This is the strongest suggestion in the critique and it's genuinely correct. The current design has the Worker at fixed temperature throughout training. As the Overseer improves, the Worker keeps producing the same difficulty of corruptions. The Forge's Task Generator handles task-level difficulty escalation, but it doesn't escalate the Worker's obfuscation sophistication within a fixed task. Adversarial temperature scaling — increasing top_p and injecting a "be more deceptive, obfuscate your reasoning" prompt as Overseer accuracy rises — adds a second, complementary escalation axis that makes the adversarial dynamic genuinely alive.</div>
+  <div class="pro-con">
+    <div class="pro">This directly strengthens the Theme 1 multi-agent claim. If judges ask "is the Worker actually adversarial?", you can show the Worker's obfuscation level increasing over time as a logged metric. It's also nearly free to implement — just a conditional prompt injection based on the Overseer's rolling detection accuracy.</div>
+    <div class="con">One real risk: too much temperature scaling too early produces incoherent Worker outputs that are trivially detectable as garbled, not subtly corrupted. Set a ceiling (top_p ≤ 0.97) and tie the escalation to detection accuracy crossing 0.65, not to step count.</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="verdict-row">
+    <span class="verdict-badge accept">Accept</span>
+    <span class="title">4. Cut overseer_probe for MVP</span>
+  </div>
+  <div class="body">This is correct and should have been in the original design. The probe action creates a variable-length trajectory (1 or 2 steps) which complicates GRPO's group advantage computation. Training the model to decide when probing is worth a turn is a harder meta-learning problem than the detection task itself. For a 48-hour demo, it is noise. The original design flagged it as optional but kept it in the spec — that was a mistake. Remove it from the action space entirely for the MVP. It can be documented as a future extension.</div>
+  <div class="pro-con">
+    <div class="pro">Simplifies the RL trajectory to a fixed 2-step episode (worker_respond → overseer_inspect). Fixed-length trajectories are friendlier to GRPO and produce cleaner reward curves. One less thing to debug under time pressure.</div>
+    <div class="con">No real downside for the demo. The probe mechanic is theoretically interesting but practically a liability at this scope.</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="verdict-row">
+    <span class="verdict-badge partial">Accept with modification</span>
+    <span class="title">5. The formalised reward function (LaTeX)</span>
+  </div>
+  <div class="body">The mathematical formulation is mostly correct but has one problem: the KL term inside the terminal reward function is wrong placement. KL divergence is not a per-episode reward component — it's a training-time regulariser that GRPOTrainer handles internally via the beta parameter. Including it in the reward formula that gets passed to the trainer would double-penalise policy divergence. The Levenshtein-based correction score is also a questionable swap for ROUGE-L — Levenshtein is character-level and expensive to compute on long outputs, while ROUGE-L is token-level and standard. Keep ROUGE-L.</div>
+  <div class="pro-con">
+    <div class="pro">The formalised notation is useful for the HF blog post and for explaining the reward to judges. Present it there. The alpha/beta/gamma weight structure is correct and clear.</div>
+    <div class="con">Remove the KL term from the reward formula — it belongs in the GRPOTrainer config (beta=0.1), not the reward function. Swap Levenshtein for ROUGE-L. The formula as written would confuse any ML engineer reading the code.</div>
+  </div>
+</div>
+
+<div class="section-label">The one thing the critique missed</div>
+
+<div class="card" style="border: 1.5px solid var(--color-border-warning);">
+  <div class="body" style="color: var(--color-text-primary);">The critique focuses on component-level changes but doesn't address the biggest practical risk: the pass@k estimation requires k=8 inference calls per task type per estimation batch. On a Colab T4 with a 1.5B model, that's roughly 8 × N_tasks forward passes before every training step that triggers re-estimation. With 20 task types, that's 160 inference calls just to update the difficulty queue. This will be the actual bottleneck during the 48-hour build, not any of the above. The Unsloth recommendation is correct — it's the right mitigation — but it should be called out as a first-class concern, not a footnote. Batch the estimation runs, cache pass@k scores with a TTL, and only re-estimate the task types whose queue depth drops below threshold.</div>
+</div>
+
+</div>

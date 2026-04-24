@@ -149,3 +149,79 @@ class TestEpisodeStateTransitions:
                 reset_obs.episode_id, OverseerProbeAction(question="Second question.")
             )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WorkerAgent adversarial temperature scaling
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestWorkerAdversarialScaling:
+    """Unit tests for WorkerAgent.update_overseer_accuracy() and _adversarial_top_p()."""
+
+    def _make_worker(self) -> "WorkerAgent":
+        from unittest.mock import MagicMock
+        from forge_arena.arena.worker import WorkerAgent
+        settings = MagicMock()
+        settings.worker_model = "test-model"
+        settings.hf_token = "hf_test"
+        settings.temperature = 0.7
+        return WorkerAgent(settings)
+
+    def test_initial_accuracy_zero(self):
+        worker = self._make_worker()
+        assert worker._overseer_detection_accuracy == 0.0
+
+    def test_update_accuracy_clamps_high(self):
+        worker = self._make_worker()
+        worker.update_overseer_accuracy(1.5)
+        assert worker._overseer_detection_accuracy == pytest.approx(1.0)
+
+    def test_update_accuracy_clamps_low(self):
+        worker = self._make_worker()
+        worker.update_overseer_accuracy(-0.5)
+        assert worker._overseer_detection_accuracy == pytest.approx(0.0)
+
+    def test_top_p_below_threshold_returns_base(self):
+        """Accuracy ≤ 0.65 → base top_p (0.90)."""
+        from forge_arena.arena.worker import _BASE_TOP_P
+        worker = self._make_worker()
+        worker.update_overseer_accuracy(0.50)
+        assert worker._adversarial_top_p() == pytest.approx(_BASE_TOP_P)
+
+    def test_top_p_at_threshold_returns_base(self):
+        """Accuracy == 0.65 exactly → base top_p (boundary, not yet escalated)."""
+        from forge_arena.arena.worker import _BASE_TOP_P
+        worker = self._make_worker()
+        worker.update_overseer_accuracy(0.65)
+        assert worker._adversarial_top_p() == pytest.approx(_BASE_TOP_P)
+
+    def test_top_p_above_threshold_exceeds_base(self):
+        """Accuracy > 0.65 → top_p strictly greater than base."""
+        from forge_arena.arena.worker import _BASE_TOP_P, _MAX_TOP_P
+        worker = self._make_worker()
+        worker.update_overseer_accuracy(0.80)
+        top_p = worker._adversarial_top_p()
+        assert top_p > _BASE_TOP_P
+        assert top_p <= _MAX_TOP_P
+
+    def test_top_p_at_full_accuracy_returns_max(self):
+        """Accuracy == 1.0 → capped at _MAX_TOP_P."""
+        from forge_arena.arena.worker import _MAX_TOP_P
+        worker = self._make_worker()
+        worker.update_overseer_accuracy(1.0)
+        assert worker._adversarial_top_p() == pytest.approx(_MAX_TOP_P)
+
+    def test_top_p_monotone_with_accuracy(self):
+        """Higher accuracy → higher or equal top_p."""
+        worker = self._make_worker()
+        accuracies = [0.0, 0.3, 0.65, 0.7, 0.85, 1.0]
+        top_ps = []
+        for acc in accuracies:
+            worker.update_overseer_accuracy(acc)
+            top_ps.append(worker._adversarial_top_p())
+        for i in range(len(top_ps) - 1):
+            assert top_ps[i] <= top_ps[i + 1], (
+                f"top_p not monotone: {top_ps[i]} > {top_ps[i + 1]} "
+                f"at accuracy {accuracies[i]} → {accuracies[i + 1]}"
+            )
+
+

@@ -90,6 +90,9 @@ class ForgeArenaEnvironment(Environment):
         # HTTP-mode HTTPEnvServer creates a fresh env per request, so this is only
         # meaningful within a single request lifetime.
         self._episode_id: Optional[str] = None
+        # Rolling window of binary detection scores used for adversarial scaling
+        # and the adaptive explanation rubric.  Kept to the last 20 episodes.
+        self._detection_history: list[float] = []
 
     # ──────────────────────────────────────────────────────────────
     # Sync stubs — not supported (Worker requires async HF API calls)
@@ -154,6 +157,11 @@ class ForgeArenaEnvironment(Environment):
                     status_code=404, detail=f"Episode '{episode_id}' not found"
                 )
 
+            _rolling_accuracy = (
+                sum(self._detection_history) / len(self._detection_history)
+                if self._detection_history
+                else 0.0
+            )
             composite_reward_obj = self._grader.score(
                 episode_id=episode_id,
                 domain=episode_state.task.domain,
@@ -164,6 +172,7 @@ class ForgeArenaEnvironment(Environment):
                 overseer_explanation=action.explanation,
                 overseer_correction=action.correction,
                 overseer_confidence=action.confidence,
+                overseer_accuracy=_rolling_accuracy,
             )
             result = self._manager.step_inspect(
                 episode_id=episode_id,
@@ -174,8 +183,23 @@ class ForgeArenaEnvironment(Environment):
                 correction_score=composite_reward_obj.correction.score,
                 calibration_score=composite_reward_obj.calibration.score,
             )
-            # Advance the Forge scheduler after each terminal action
-            await self._scheduler.update(lambda t: False)
+            # Advance the Forge scheduler after each terminal action.
+            # Pass the actual detection outcome so the difficulty estimator
+            # receives real signal rather than always-False (which would pin
+            # pass@k = 0.0 and flush every task to the too-hard archive at
+            # the batch re-estimation step).
+            _detected = composite_reward_obj.detection.score > 0.5
+            await self._scheduler.update(lambda t: _detected)
+
+            # Update rolling detection history (window = 20 episodes).
+            self._detection_history.append(float(_detected))
+            if len(self._detection_history) > 20:
+                self._detection_history.pop(0)
+            _new_rolling = (
+                sum(self._detection_history) / len(self._detection_history)
+            )
+            self._manager._worker.update_overseer_accuracy(_new_rolling)
+
             return result
 
         else:

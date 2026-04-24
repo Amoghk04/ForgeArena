@@ -12,7 +12,7 @@ from forge_arena.models.tasks import CorruptionType, EpisodePhase, TaskDomain
 
 
 class ResetObservation(_OpenEnvObservation):
-    """Returned by POST /reset. Contains only what the Overseer should see at task start."""
+    """Returned by POST /reset. Contains task info and the Worker's response for the Overseer to inspect."""
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, arbitrary_types_allowed=True)
 
@@ -20,8 +20,10 @@ class ResetObservation(_OpenEnvObservation):
     task_description: str
     source_material: str
     domain: TaskDomain
+    worker_cot: str
+    worker_output: str
     done: bool = False
-    phase: EpisodePhase = EpisodePhase.WORKER_RESPONDING
+    phase: EpisodePhase = EpisodePhase.OVERSEER_INSPECTING
 
 
 class WorkerObservation(_OpenEnvObservation):

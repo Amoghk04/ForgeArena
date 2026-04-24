@@ -1,6 +1,17 @@
-"""Worker agent — calls the HuggingFace Inference API to generate Worker responses."""
+"""Worker agent — calls the HuggingFace Inference API or a local model.
+
+Local model mode:
+    Set ``worker_model.local_model_path`` in openenv.yaml (or the env var
+    ``FORGE_WORKER_MODEL__LOCAL_MODEL_PATH``) to a local directory containing
+    downloaded Qwen2.5-7B-Instruct weights.  The model is loaded once at
+    startup and generation runs in a thread-pool executor so it does not block
+    the FastAPI async event loop.
+"""
 
 from __future__ import annotations
+
+import asyncio
+from typing import Any
 
 import httpx
 
@@ -38,10 +49,11 @@ _MAX_TOP_P = 0.97
 
 
 class WorkerAgent:
-    """Calls the Worker model via the HuggingFace Inference API.
+    """Generates Worker responses via the HF Inference API or a local model.
 
-    The Worker is NOT loaded locally. Its VRAM cost does not affect the
-    training Space budget.
+    When ``settings.worker_model.local_model_path`` is set, the model is loaded
+    into GPU memory at construction time and generation is dispatched to a
+    thread-pool executor on every call so the async event loop is never blocked.
 
     Adversarial temperature scaling: when the Overseer's rolling detection
     accuracy exceeds _ESCALATION_THRESHOLD (0.65), top_p is raised from
@@ -58,6 +70,12 @@ class WorkerAgent:
         self._client = httpx.AsyncClient(timeout=60.0)
         # Rolling detection accuracy fed in by env.py after every graded episode.
         self._overseer_detection_accuracy: float = 0.0
+        # Local pipeline — None when using the HF Inference API.
+        self._local_pipeline: Any = None
+        if settings.worker_model.local_model_path:
+            self._local_pipeline = self._load_local_pipeline(
+                settings.worker_model.local_model_path
+            )
 
     def update_overseer_accuracy(self, accuracy: float) -> None:
         """Update the rolling Overseer detection accuracy.
@@ -147,7 +165,14 @@ class WorkerAgent:
     async def _call_inference_api(
         self, system_prompt: str, user_message: str, top_p: float = _BASE_TOP_P
     ) -> str:
-        """Call the HuggingFace Inference API with the given messages."""
+        """Generate a response from the Worker model.
+
+        Dispatches to ``_call_local_model`` when a local pipeline is loaded,
+        otherwise calls the HuggingFace Inference API.
+        """
+        if self._local_pipeline is not None:
+            return await self._call_local_model(system_prompt, user_message, top_p)
+
         cfg = self._settings.worker_model
         headers = {}
         if self._settings.hf_api_key:
@@ -169,6 +194,52 @@ class WorkerAgent:
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
+
+    async def _call_local_model(
+        self, system_prompt: str, user_message: str, top_p: float
+    ) -> str:
+        """Run local model generation in a thread-pool executor.
+
+        This keeps the async event loop unblocked while the synchronous
+        ``transformers`` pipeline runs on the GPU.
+        """
+        cfg = self._settings.worker_model
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+
+        def _generate() -> str:
+            result = self._local_pipeline(
+                messages,
+                max_new_tokens=cfg.max_new_tokens,
+                temperature=cfg.temperature,
+                top_p=top_p,
+                do_sample=True,
+            )
+            # transformers chat pipeline returns:
+            # [{"generated_text": [{"role": ..., "content": ...}, ..., assistant_msg]}]
+            return result[0]["generated_text"][-1]["content"]
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _generate)
+
+    @staticmethod
+    def _load_local_pipeline(model_path: str) -> Any:
+        """Load the Worker model from a local directory into GPU memory.
+
+        Uses bfloat16 and automatic device placement.  On a 48 GB card this
+        leaves roughly 34 GB for the Overseer and training activations.
+        """
+        import torch
+        from transformers import pipeline as hf_pipeline
+
+        return hf_pipeline(
+            "text-generation",
+            model=model_path,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+        )
 
     def _parse_cot_and_output(self, response_text: str) -> tuple[str, str]:
         """Split the model response into chain-of-thought and final output.

@@ -48,6 +48,10 @@ class WorkerModelConfig(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     repo_id: str = "Qwen/Qwen2.5-7B-Instruct"
+    # Set to a local directory path (or HF model ID already on disk) to load
+    # the Worker model locally instead of calling the HF Inference API.
+    # Example: local_model_path: "models/worker"
+    local_model_path: Optional[str] = None
     inference_api: bool = True
     max_new_tokens: int = 1024
     temperature: float = 0.7

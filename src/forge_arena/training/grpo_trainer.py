@@ -143,16 +143,25 @@ class ArenaRewardFunction:
 # Episode dataset builder
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_episode_dataset(server_url: str, num_episodes: int = 256, concurrency: int = 4) -> list[dict[str, Any]]:
+def build_episode_dataset(
+    server_url: str,
+    num_episodes: int = 256,
+    concurrency: int = 4,
+    incremental_path: str | None = None,
+) -> list[dict[str, Any]]:
     """Roll out ``num_episodes`` against the Arena server and collect episode data.
 
     Episodes are fetched concurrently (up to ``concurrency`` in flight at once)
     so the Worker GPU stays busy and dataset collection is ~concurrency× faster
     than the previous sequential implementation.
 
+    If ``incremental_path`` is given, each episode row is written to
+    ``{incremental_path}/rows.jsonl`` immediately upon arrival (with flush),
+    so a partial dataset is always recoverable if the process is interrupted.
+
     Returns a list of records suitable for constructing a HuggingFace Dataset.
     """
-    return asyncio.run(_build_episode_dataset_async(server_url, num_episodes, concurrency))
+    return asyncio.run(_build_episode_dataset_async(server_url, num_episodes, concurrency, incremental_path))
 
 
 async def _fetch_one_episode(
@@ -205,18 +214,41 @@ async def _fetch_one_episode(
 
 
 async def _build_episode_dataset_async(
-    server_url: str, num_episodes: int, concurrency: int
+    server_url: str, num_episodes: int, concurrency: int, incremental_path: str | None = None
 ) -> list[dict[str, Any]]:
     base = server_url.rstrip("/")
     semaphore = asyncio.Semaphore(concurrency)
-    # 300 s per request: Qwen2.5-7B can take >60 s when the server is handling
-    # multiple concurrent Worker generations.  60 s caused silent ReadTimeout
-    # failures (str(ReadTimeout()) == "") that produced blank "Reset failed"
-    # log entries and reduced the dataset by ~12 %.
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        tasks = [_fetch_one_episode(client, base, semaphore) for _ in range(num_episodes)]
-        results = await asyncio.gather(*tasks)
-    return [r for r in results if r is not None]
+    rows: list[dict[str, Any]] = []
+
+    jsonl_file = None
+    if incremental_path:
+        Path(incremental_path).mkdir(parents=True, exist_ok=True)
+        jsonl_path = Path(incremental_path) / "rows.jsonl"
+        jsonl_file = open(jsonl_path, "a", encoding="utf-8")  # noqa: WPS515
+
+    try:
+        # 300 s per request: Qwen2.5-7B can take >60 s when the server is handling
+        # multiple concurrent Worker generations.  60 s caused silent ReadTimeout
+        # failures (str(ReadTimeout()) == "") that produced blank "Reset failed"
+        # log entries and reduced the dataset by ~12 %.
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            futures = [
+                asyncio.ensure_future(_fetch_one_episode(client, base, semaphore))
+                for _ in range(num_episodes)
+            ]
+            for future in asyncio.as_completed(futures):
+                result = await future
+                if result is not None:
+                    rows.append(result)
+                    if jsonl_file is not None:
+                        jsonl_file.write(json.dumps(result) + "\n")
+                        jsonl_file.flush()
+                        logger.debug("Episode saved incrementally", total_so_far=len(rows))
+    finally:
+        if jsonl_file is not None:
+            jsonl_file.close()
+
+    return rows
 
 
 def _build_prompt(reset_obs: dict[str, Any]) -> str:
@@ -291,13 +323,33 @@ def main() -> None:
     from datasets import Dataset  # type: ignore[import]
 
     dataset_path = args.dataset_path
-    if dataset_path and Path(dataset_path).exists():
+    _hf_marker = Path(dataset_path) / "dataset_info.json" if dataset_path else None
+    _jsonl_path = Path(dataset_path) / "rows.jsonl" if dataset_path else None
+
+    if dataset_path and _hf_marker is not None and _hf_marker.exists():
+        # Full HF Dataset written by a previous successful run — load directly.
         logger.info("Loading episode dataset from disk", path=dataset_path)
         dataset = Dataset.load_from_disk(dataset_path)
         logger.info("Dataset loaded", num_rows=len(dataset))
+    elif dataset_path and _jsonl_path is not None and _jsonl_path.exists():
+        # Partial incremental save from a previously interrupted run.
+        rows = [
+            json.loads(line)
+            for line in _jsonl_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        logger.info(
+            "Loaded partial dataset from incremental save — delete rows.jsonl and rerun to collect more",
+            path=str(_jsonl_path),
+            num_rows=len(rows),
+        )
+        dataset = Dataset.from_list(rows)
     else:
         logger.info("Building episode dataset", num_episodes=args.num_episodes, concurrency=args.concurrency)
-        rows = build_episode_dataset(args.server_url, args.num_episodes, args.concurrency)
+        rows = build_episode_dataset(
+            args.server_url, args.num_episodes, args.concurrency,
+            incremental_path=dataset_path,
+        )
         if not rows:
             raise RuntimeError("No episodes collected — ensure the Arena server is running.")
         dataset = Dataset.from_list(rows)

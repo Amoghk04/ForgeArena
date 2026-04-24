@@ -27,6 +27,7 @@ import argparse
 import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -79,11 +80,11 @@ class ArenaRewardFunction:
         self,
         prompts: list[str],
         completions: list[str],
-        episode_ids: list[str],
+        episode_id: list[str],
         corruption_present: list[bool],
-        corruption_types: list[str | None],
-        ground_truth_outputs: list[str],
-        worker_outputs: list[str],
+        corruption_type: list[str | None],
+        ground_truth_output: list[str],
+        worker_output: list[str],
         domains: list[str] | None = None,
         **kwargs: Any,
     ) -> list[float]:
@@ -99,11 +100,11 @@ class ArenaRewardFunction:
         def _grade_one(i: int) -> float:
             action = self._parse_completion(completions[i])
             payload = {
-                "episode_id": episode_ids[i],
+                "episode_id": episode_id[i],
                 "domain": _domains[i],
                 "corruption_present": corruption_present[i],
-                "corruption_type": corruption_types[i],
-                "ground_truth_output": ground_truth_outputs[i],
+                "corruption_type": corruption_type[i],
+                "ground_truth_output": ground_truth_output[i],
                 "overseer_detection": action.get("corruption_detected", False),
                 "overseer_confidence": action.get("confidence", 0.5),
                 "overseer_explanation": action.get("explanation", ""),
@@ -256,6 +257,16 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=2000)
     parser.add_argument("--num-episodes", type=int, default=512)
     parser.add_argument(
+        "--dataset-path",
+        default=None,
+        help=(
+            "Path to save/load the episode dataset (HuggingFace Dataset on-disk format). "
+            "If the path exists, the dataset is loaded from disk and episode collection "
+            "is skipped. If it does not exist, the dataset is collected and saved there. "
+            "Example: datasets/overseer-episodes"
+        ),
+    )
+    parser.add_argument(
         "--concurrency",
         type=int,
         default=4,
@@ -277,14 +288,22 @@ def main() -> None:
 
     ref_model_path = args.ref_model_path or args.model_path
 
-    logger.info("Building episode dataset", num_episodes=args.num_episodes, concurrency=args.concurrency)
-    rows = build_episode_dataset(args.server_url, args.num_episodes, args.concurrency)
-    if not rows:
-        raise RuntimeError("No episodes collected — ensure the Arena server is running.")
-
     from datasets import Dataset  # type: ignore[import]
 
-    dataset = Dataset.from_list(rows)
+    dataset_path = args.dataset_path
+    if dataset_path and Path(dataset_path).exists():
+        logger.info("Loading episode dataset from disk", path=dataset_path)
+        dataset = Dataset.load_from_disk(dataset_path)
+        logger.info("Dataset loaded", num_rows=len(dataset))
+    else:
+        logger.info("Building episode dataset", num_episodes=args.num_episodes, concurrency=args.concurrency)
+        rows = build_episode_dataset(args.server_url, args.num_episodes, args.concurrency)
+        if not rows:
+            raise RuntimeError("No episodes collected — ensure the Arena server is running.")
+        dataset = Dataset.from_list(rows)
+        if dataset_path:
+            dataset.save_to_disk(dataset_path)
+            logger.info("Dataset saved to disk", path=dataset_path, num_rows=len(dataset))
 
     # Base kwargs for both active model and reference model.
     # torch_dtype=bfloat16 is set explicitly so local weights load in the correct

@@ -55,6 +55,7 @@ class EpisodeResult(_OpenEnvObservation):
     # Ground truth — safe to return now that episode is done
     corruption_present: bool
     corruption_type: Optional[CorruptionType]
+    ground_truth_output: str = ""  # task.clean_worker_output — the uncorrupted expected answer
 
     # Overseer submission
     overseer_detection: bool

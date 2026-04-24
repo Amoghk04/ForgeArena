@@ -166,6 +166,7 @@ class EpisodeManager:
             worker_output=state.worker_output,
             corruption_present=state.corruption_present,
             corruption_type=state.corruption_type,
+            ground_truth_output=state.task.clean_worker_output,
             overseer_detection=action.detection,
             overseer_explanation=action.explanation,
             overseer_correction=action.correction,

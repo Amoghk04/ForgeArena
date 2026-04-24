@@ -1,0 +1,13 @@
+.git
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+.venv
+ui/node_modules
+ui/dist
+ui/.vite
+outputs/
+datasets/
+models/
+plots/
+.pytest_cache

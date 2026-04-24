@@ -2,10 +2,13 @@
 FROM node:20-slim AS ui-builder
 
 WORKDIR /ui
-COPY ui/package.json ui/package-lock.json* ./
-RUN npm ci --prefer-offline
 COPY ui/ ./
-RUN npm run build          # outputs to /ui/dist
+# Remove host-copied node_modules (binaries may lack execute bits) and any lockfile.
+# A clean install ensures npm resolves optional platform-specific deps (rollup, esbuild)
+# fresh from the registry with correct permissions.
+RUN rm -rf node_modules package-lock.json && \
+    npm install && \
+    npm run build
 
 
 # ── Stage 2: Python backend + nginx + supervisord ────────────────────────────

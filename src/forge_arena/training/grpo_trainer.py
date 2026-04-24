@@ -24,8 +24,9 @@ Requirements (training extras):
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
-import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx
@@ -87,11 +88,13 @@ class ArenaRewardFunction:
 
         GRPOTrainer calls this once per rollout batch. The extra keyword
         arguments come from the ``dataset_text_field`` columns in the dataset.
+        Grader HTTP calls are dispatched concurrently via a thread pool so the
+        GPU is not sitting idle waiting for the server.
         """
         _domains = domains or ["customer_support"] * len(completions)
-        rewards: list[float] = []
-        for i, completion in enumerate(completions):
-            action = self._parse_completion(completion)
+
+        def _grade_one(i: int) -> float:
+            action = self._parse_completion(completions[i])
             payload = {
                 "episode_id": episode_ids[i],
                 "domain": _domains[i],
@@ -106,11 +109,13 @@ class ArenaRewardFunction:
             try:
                 resp = self._client.post(f"{self._base}/grader", json=payload)
                 resp.raise_for_status()
-                data = resp.json()
-                rewards.append(float(data["composite"]))
+                return float(resp.json()["composite"])
             except (httpx.HTTPError, KeyError, ValueError) as exc:
                 logger.warning("Reward call failed", error=str(exc))
-                rewards.append(0.0)
+                return 0.0
+
+        with ThreadPoolExecutor(max_workers=min(len(completions), 8)) as pool:
+            rewards = list(pool.map(_grade_one, range(len(completions))))
         return rewards
 
     @staticmethod
@@ -134,66 +139,75 @@ class ArenaRewardFunction:
 # Episode dataset builder
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_episode_dataset(server_url: str, num_episodes: int = 256) -> list[dict[str, Any]]:
+def build_episode_dataset(server_url: str, num_episodes: int = 256, concurrency: int = 8) -> list[dict[str, Any]]:
     """Roll out ``num_episodes`` against the Arena server and collect episode data.
 
+    Episodes are fetched concurrently (up to ``concurrency`` in flight at once)
+    so the Worker GPU stays busy and dataset collection is ~concurrency× faster
+    than the previous sequential implementation.
+
     Returns a list of records suitable for constructing a HuggingFace Dataset.
-    Each record contains the full prompt plus the extra columns that the reward
-    function expects.
     """
-    base = server_url.rstrip("/")
-    rows: list[dict[str, Any]] = []
+    return asyncio.run(_build_episode_dataset_async(server_url, num_episodes, concurrency))
 
-    with httpx.Client(timeout=60.0) as client:
-        for _ in range(num_episodes):
-            # Reset
-            try:
-                reset_resp = client.post(f"{base}/reset")
-                reset_resp.raise_for_status()
-                # openenv HTTPEnvServer wraps responses: {"observation": {...}, "reward": null, "done": false}
-                reset_obs = reset_resp.json().get("observation", reset_resp.json())
-            except httpx.HTTPError as exc:
-                logger.warning("Reset failed", error=str(exc))
-                time.sleep(QUEUE_POLL_INTERVAL_S)
-                continue
 
-            episode_id = reset_obs["episode_id"]
+async def _fetch_one_episode(
+    client: httpx.AsyncClient,
+    base: str,
+    semaphore: asyncio.Semaphore,
+) -> dict[str, Any] | None:
+    """Reset + step one episode; return a dataset row or None on failure."""
+    async with semaphore:
+        try:
+            reset_resp = await client.post(f"{base}/reset")
+            reset_resp.raise_for_status()
+            reset_obs = reset_resp.json().get("observation", reset_resp.json())
+        except httpx.HTTPError as exc:
+            logger.warning("Reset failed", error=str(exc))
+            return None
 
-            # Complete the episode with a dummy inspect action to reveal ground truth.
-            # The prompt and worker output are stored for the model to generate completions
-            # against during training. Rewards are computed via the standalone /grader
-            # endpoint, so the episode does not need to remain open.
-            try:
-                step_body = {
-                    "episode_id": episode_id,
-                    "action": {
-                        "action_type": "overseer_inspect",
-                        "detection": False,
-                        "confidence": 0.5,
-                        "explanation": "",
-                        "correction": "",
-                    },
-                }
-                step_resp = client.post(f"{base}/step", json=step_body)
-                step_resp.raise_for_status()
-                step_obs = step_resp.json().get("observation", {})
-            except httpx.HTTPError as exc:
-                logger.warning("Step failed during dataset build", error=str(exc))
-                continue
+        episode_id = reset_obs["episode_id"]
 
-            rows.append({
-                "prompt": _build_prompt(reset_obs),
+        try:
+            step_body = {
                 "episode_id": episode_id,
-                "task_description": reset_obs.get("task_description", ""),
-                "worker_cot": reset_obs.get("worker_cot", ""),
-                "worker_output": reset_obs.get("worker_output", ""),
-                "corruption_present": step_obs.get("corruption_present", False),
-                "corruption_type": step_obs.get("corruption_type"),
-                "ground_truth_output": step_obs.get("ground_truth_output", ""),
-                "domains": reset_obs.get("domain", "customer_support"),
-            })
+                "action": {
+                    "action_type": "overseer_inspect",
+                    "detection": False,
+                    "confidence": 0.5,
+                    "explanation": "",
+                    "correction": "",
+                },
+            }
+            step_resp = await client.post(f"{base}/step", json=step_body)
+            step_resp.raise_for_status()
+            step_obs = step_resp.json().get("observation", {})
+        except httpx.HTTPError as exc:
+            logger.warning("Step failed during dataset build", error=str(exc))
+            return None
 
-    return rows
+        return {
+            "prompt": _build_prompt(reset_obs),
+            "episode_id": episode_id,
+            "task_description": reset_obs.get("task_description", ""),
+            "worker_cot": reset_obs.get("worker_cot", ""),
+            "worker_output": reset_obs.get("worker_output", ""),
+            "corruption_present": step_obs.get("corruption_present", False),
+            "corruption_type": step_obs.get("corruption_type"),
+            "ground_truth_output": step_obs.get("ground_truth_output", ""),
+            "domains": reset_obs.get("domain", "customer_support"),
+        }
+
+
+async def _build_episode_dataset_async(
+    server_url: str, num_episodes: int, concurrency: int
+) -> list[dict[str, Any]]:
+    base = server_url.rstrip("/")
+    semaphore = asyncio.Semaphore(concurrency)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        tasks = [_fetch_one_episode(client, base, semaphore) for _ in range(num_episodes)]
+        results = await asyncio.gather(*tasks)
+    return [r for r in results if r is not None]
 
 
 def _build_prompt(reset_obs: dict[str, Any]) -> str:
@@ -233,6 +247,12 @@ def main() -> None:
     parser.add_argument("--output-dir", default="outputs/overseer-grpo")
     parser.add_argument("--max-steps", type=int, default=2000)
     parser.add_argument("--num-episodes", type=int, default=512)
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=8,
+        help="Number of concurrent /reset+/step calls during dataset collection.",
+    )
     parser.add_argument("--per-device-batch-size", type=int, default=4)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=5e-6)
@@ -249,8 +269,8 @@ def main() -> None:
 
     ref_model_path = args.ref_model_path or args.model_path
 
-    logger.info("Building episode dataset", num_episodes=args.num_episodes)
-    rows = build_episode_dataset(args.server_url, args.num_episodes)
+    logger.info("Building episode dataset", num_episodes=args.num_episodes, concurrency=args.concurrency)
+    rows = build_episode_dataset(args.server_url, args.num_episodes, args.concurrency)
     if not rows:
         raise RuntimeError("No episodes collected — ensure the Arena server is running.")
 

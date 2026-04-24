@@ -239,6 +239,7 @@ class WorkerAgent:
             model=model_path,
             torch_dtype=torch.bfloat16,
             device_map="auto",
+            batch_size=8,  # enable GPU batching; suppresses the sequential-pipeline warning
         )
         # Clear the model-level max_length default (20) so it does not conflict
         # with the per-call max_new_tokens argument and trigger a noisy warning.

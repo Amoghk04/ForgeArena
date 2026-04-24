@@ -161,9 +161,11 @@ class TestWorkerAdversarialScaling:
         from unittest.mock import MagicMock
         from forge_arena.arena.worker import WorkerAgent
         settings = MagicMock()
-        settings.worker_model = "test-model"
+        settings.worker_model.repo_id = "test-model"
+        settings.worker_model.local_model_path = None
+        settings.worker_model.max_new_tokens = 512
+        settings.worker_model.temperature = 0.7
         settings.hf_token = "hf_test"
-        settings.temperature = 0.7
         return WorkerAgent(settings)
 
     def test_initial_accuracy_zero(self):

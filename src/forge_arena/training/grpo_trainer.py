@@ -412,6 +412,154 @@ def main() -> None:
     reward_fn.close()
     logger.info("Training complete", output_dir=args.output_dir)
 
+    _plot_training_metrics(trainer.state.log_history, args.output_dir)
+    logger.info("Plots saved", plots_dir=str(Path(args.output_dir) / "plots"))
+
+
+def _plot_training_metrics(log_history: list[dict[str, Any]], output_dir: str) -> None:
+    """Save training-metric plots to ``{output_dir}/plots/``.
+
+    Generates:
+    - ``training_metrics.png`` — 2×2 composite panel (reward, loss, KL, LR)
+    - ``reward_curve.png`` — full-resolution reward curve with smoothing
+    - ``loss_curve.png`` — full-resolution loss curve with smoothing
+    - ``kl_divergence.png`` — KL from reference model with smoothing
+
+    Called automatically after ``trainer.train()`` completes.
+    Requires ``matplotlib`` (included in the ``training`` extra).
+    """
+    try:
+        import matplotlib  # type: ignore[import]
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt  # type: ignore[import]
+        import numpy as np  # already a core dep
+    except ImportError:
+        logger.warning("matplotlib not installed — skipping training plots. pip install matplotlib")
+        return
+
+    # ── Dark theme (matches scripts/plot_results.py) ─────────────────────────
+    plt.rcParams.update({
+        "figure.facecolor": "#0d0e1a",
+        "axes.facecolor":   "#12132a",
+        "axes.edgecolor":   "#2a2d50",
+        "axes.labelcolor":  "#c0c4e0",
+        "xtick.color":      "#9aa3c2",
+        "ytick.color":      "#9aa3c2",
+        "text.color":       "#e0e0ff",
+        "grid.color":       "#1e2040",
+        "grid.linestyle":   "--",
+        "grid.alpha":       0.6,
+        "font.family":      "monospace",
+        "font.size":        10,
+        "legend.facecolor": "#12132a",
+        "legend.edgecolor": "#2a2d50",
+    })
+
+    ACCENT = "#5b6bff"
+    GREEN  = "#4ade80"
+    RED    = "#f87171"
+    YELLOW = "#fbbf24"
+
+    # TRL ≥0.9 logs rewards under "rewards/<func_name>" or "reward".
+    # Be defensive: scan all possible key names.
+    REWARD_KEYS = ["rewards/arena_reward", "reward", "arena_reward"]
+    KL_KEYS     = ["kl", "kl_divergence", "policy/kl", "mean_kl"]
+
+    steps: list[int] = []
+    rewards: list[float | None] = []
+    losses: list[float | None] = []
+    kls: list[float | None] = []
+    lrs: list[float | None] = []
+
+    for entry in log_history:
+        step = entry.get("step")
+        if step is None:
+            continue
+
+        reward = next((entry[k] for k in REWARD_KEYS if k in entry), None)
+        kl     = next((entry[k] for k in KL_KEYS     if k in entry), None)
+        loss   = entry.get("loss")
+        lr     = entry.get("learning_rate")
+
+        if any(v is not None for v in (reward, loss, kl, lr)):
+            steps.append(int(step))
+            rewards.append(reward)
+            losses.append(loss)
+            kls.append(kl)
+            lrs.append(lr)
+
+    if not steps:
+        logger.warning("No training metrics found in log_history — skipping plots")
+        return
+
+    plots_dir = Path(output_dir) / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    xs = np.array(steps)
+
+    def _smooth(values: list[float | None], window: int = 10) -> tuple[np.ndarray, np.ndarray]:
+        """Return (x_smoothed, y_smoothed) after applying a uniform moving-average kernel."""
+        valid_xs = np.array([steps[i] for i, v in enumerate(values) if v is not None])
+        valid_ys = np.array([v for v in values if v is not None], dtype=float)
+        if len(valid_ys) < window:
+            return valid_xs, valid_ys
+        kernel   = np.ones(window) / window
+        smoothed = np.convolve(valid_ys, kernel, mode="valid")
+        half     = window // 2
+        return valid_xs[half - 1: half - 1 + len(smoothed)], smoothed
+
+    def _draw_metric(
+        ax: Any,
+        values: list[float | None],
+        title: str,
+        color: str,
+        ylabel: str,
+        window: int = 10,
+    ) -> None:
+        valid = [(steps[i], v) for i, v in enumerate(values) if v is not None]
+        if not valid:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center", transform=ax.transAxes)
+            ax.set_title(title, pad=6)
+            return
+        raw_x, raw_y = zip(*valid)
+        ax.plot(raw_x, raw_y, color=color, linewidth=1.0, alpha=0.35, label="raw")
+        sx, sy = _smooth(values, window=window)
+        if len(sy) > 1:
+            ax.plot(sx, sy, color=color, linewidth=2.2, label=f"smoothed ({window}-step)")
+        ax.set_title(title, pad=6)
+        ax.set_xlabel("Step")
+        ax.set_ylabel(ylabel)
+        ax.legend(framealpha=0.25)
+        ax.grid(True)
+
+    # ── Composite 2×2 panel ───────────────────────────────────────────────────
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+    fig.suptitle("GRPO Training Metrics — Overseer (Qwen2.5-1.5B-Instruct)", fontsize=13, y=1.01)
+    _draw_metric(axes[0, 0], rewards, "Reward Curve",                  ACCENT, "Composite Reward")
+    _draw_metric(axes[0, 1], losses,  "Loss Curve",                    RED,    "Loss")
+    _draw_metric(axes[1, 0], kls,     "KL Divergence (from reference)", YELLOW, "KL")
+    _draw_metric(axes[1, 1], lrs,     "Learning Rate Schedule",        GREEN,  "LR")
+    fig.tight_layout()
+    fig.savefig(plots_dir / "training_metrics.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    # ── Individual high-resolution plots ─────────────────────────────────────
+    individual = [
+        (rewards, "reward_curve",   "Reward Curve — Composite Overseer Reward",      ACCENT, "Composite Reward"),
+        (losses,  "loss_curve",     "Loss Curve — GRPO Policy Gradient Loss",        RED,    "Loss"),
+        (kls,     "kl_divergence",  "KL Divergence — Policy vs. Reference Model",    YELLOW, "KL"),
+    ]
+    for values, fname, title, color, ylabel in individual:
+        valid = [(steps[i], v) for i, v in enumerate(values) if v is not None]
+        if not valid:
+            continue
+        fig2, ax2 = plt.subplots(figsize=(10, 4))
+        _draw_metric(ax2, values, title, color, ylabel, window=10)
+        fig2.tight_layout()
+        fig2.savefig(plots_dir / f"{fname}.png", dpi=150, bbox_inches="tight")
+        plt.close(fig2)
+
+    logger.info("Training plots saved", directory=str(plots_dir), num_steps=len(steps))
+
 
 def _is_local(path: str) -> bool:
     """Return True if ``path`` looks like a local filesystem path rather than a Hub model ID."""

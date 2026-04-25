@@ -309,6 +309,22 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=5e-6)
     parser.add_argument("--grpo-num-generations", type=int, default=8)
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.9,
+        help=(
+            "Sampling temperature for GRPO rollouts. Must be > 0.0 to generate "
+            "diverse completions within each group — if all completions are identical "
+            "the reward variance is 0 and the loss collapses to 0.0."
+        ),
+    )
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=512,
+        help="Max tokens to generate per rollout. Must be large enough for a full JSON response.",
+    )
+    parser.add_argument(
         "--use-4bit",
         action="store_true",
         help=(
@@ -384,6 +400,13 @@ def main() -> None:
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
         num_generations=args.grpo_num_generations,
+        # Diverse sampling is required for GRPO.  If all completions within a
+        # group receive identical rewards the advantage std = 0 and the loss
+        # collapses to 0.0.  temperature=0.9 gives enough variance while still
+        # staying on-distribution; max_new_tokens=512 leaves room for a full
+        # JSON response (type name + citation + explanation + correction).
+        temperature=args.temperature,
+        max_new_tokens=args.max_new_tokens,
         logging_steps=10,
         save_steps=200,
         bf16=True,

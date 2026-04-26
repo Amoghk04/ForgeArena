@@ -1,7 +1,7 @@
 # Forge + Arena: Training a Weaker AI to Oversee a Stronger One
 
 > **OpenEnv Hackathon Finale · Bangalore, April 2026**
-> Built by Amogh · [Colab Notebook](#colab-notebook) · [GitHub](https://github.com/your-repo/forgearena) <!-- TODO: fix GitHub link -->
+> Built by Amogh · [▶ YouTube Demo](https://www.youtube.com/watch?v=SxuHXHyeP9s) · [Colab Notebook](https://colab.research.google.com/drive/1M-5PuPt_Gp7R44Xk6bdhGyyZ4qI381OS) · [GitHub](https://github.com/Amoghk04/forgearena) 
 
 ---
 
@@ -219,9 +219,8 @@ Corruption-type breakdown (radar chart):
 
 ## Colab Notebook
 
-> **TODO: Fix this link before sharing.** Replace the placeholder URL below with the actual Colab notebook link once it is published.
 
-**[▶ Open in Google Colab](https://colab.research.google.com/drive/PLACEHOLDER_NOTEBOOK_ID)** ← **REMINDER: replace this URL**
+**[▶ Open in Google Colab](https://colab.research.google.com/drive/1M-5PuPt_Gp7R44Xk6bdhGyyZ4qI381OS)** 
 
 The notebook walks through:
 1. Installing the environment and dependencies

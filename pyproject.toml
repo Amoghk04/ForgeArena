@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "forge-arena"
 version = "0.1.0"
 description = "Adaptive RL training environment for AI oversight capability."
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
     "fastapi>=0.111.0",

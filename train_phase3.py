@@ -43,13 +43,13 @@ PHASE2_DATASET_PATH  = "datasets/overseer-episodes-phase2"
 # Phase 3 outputs
 PHASE3_OUTPUT_DIR    = "outputs/overseer-grpo-phase2"
 PHASE3_MAX_STEPS     = 200
-PHASE3_LEARNING_RATE = 1e-4
+PHASE3_LEARNING_RATE = 5e-6
 
 # Same training config as Phase 1
 PER_DEVICE_BATCH_SIZE = 16
 GRADIENT_ACCUMULATION = 1
 GRPO_NUM_GENERATIONS  = 16
-TEMPERATURE           = 1.0
+TEMPERATURE           = 1.5       # High temp for diverse completions
 MAX_NEW_TOKENS        = 512
 WARMUP_STEPS          = 20
 GRPO_BETA             = 0.04

@@ -49,12 +49,12 @@ LORA_DROPOUT          = 0.05
 LORA_TARGET_MODULES   = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
 # Training
-PHASE1_MAX_STEPS      = 200
+PHASE1_MAX_STEPS      = 300
 PER_DEVICE_BATCH_SIZE = 16
 GRADIENT_ACCUMULATION = 1
-LEARNING_RATE         = 2e-4
+LEARNING_RATE         = 1e-5
 GRPO_NUM_GENERATIONS  = 16
-TEMPERATURE           = 1.0
+TEMPERATURE           = 1.5       # High temp → diverse completions → GRPO has contrast signal
 MAX_NEW_TOKENS        = 512
 WARMUP_STEPS          = 20
 
@@ -192,11 +192,15 @@ class ProgressCallback(TrainerCallback):
         reward = logs.get("rewards/arena_reward/mean", logs.get("reward", "---"))
         loss = logs.get("loss", "---")
         lr = logs.get("learning_rate", "---")
+        frac_zero = logs.get("frac_reward_zero_std", "---")
+        grad = logs.get("grad_norm", "---")
         if isinstance(reward, float): reward = f"{reward:.4f}"
         if isinstance(loss, float): loss = f"{loss:.4f}"
         if isinstance(lr, float): lr = f"{lr:.2e}"
+        if isinstance(frac_zero, float): frac_zero = f"{frac_zero:.1%}"
+        if isinstance(grad, float): grad = f"{grad:.4f}"
         pct = 100 * step / args.max_steps
-        print(f"  [{step:>5}/{args.max_steps}] ({pct:5.1f}%)  reward={reward}  loss={loss}  lr={lr}")
+        print(f"  [{step:>5}/{args.max_steps}] ({pct:5.1f}%)  reward={reward}  loss={loss}  lr={lr}  zero_std={frac_zero}  grad={grad}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

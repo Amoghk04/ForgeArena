@@ -73,9 +73,19 @@ class WorkerAgent:
         # Local pipeline — None when using the HF Inference API.
         self._local_pipeline: Any = None
         if settings.worker_model.local_model_path:
-            self._local_pipeline = self._load_local_pipeline(
-                settings.worker_model.local_model_path
-            )
+            import logging as _logging
+            _log = _logging.getLogger(__name__)
+            try:
+                self._local_pipeline = self._load_local_pipeline(
+                    settings.worker_model.local_model_path
+                )
+            except Exception as exc:
+                _log.warning(
+                    "local_model_path '%s' failed to load (%s) — "
+                    "falling back to HF Inference API",
+                    settings.worker_model.local_model_path,
+                    exc,
+                )
 
     def update_overseer_accuracy(self, accuracy: float) -> None:
         """Update the rolling Overseer detection accuracy.

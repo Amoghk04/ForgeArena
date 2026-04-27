@@ -57,6 +57,14 @@ src/forge_arena/
 
 ---
 
+## Links
+
+- Colab notebook - https://colab.research.google.com/drive/1M-5PuPt_Gp7R44Xk6bdhGyyZ4qI381OS
+- HuggingFace Space - https://huggingface.co/spaces/amogh-kal1/forge-arena
+- Youtube video - https://www.youtube.com/watch?v=SxuHXHyeP9s
+
+---
+
 ## Setup
 
 ### 1. Clone and install
